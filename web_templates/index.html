@@ -1,0 +1,180 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Проверка работ стажеров-аналитиков</title>
+  <style>
+    :root {
+      --bg: #f2f6f3;
+      --ink: #14281d;
+      --panel: #ffffff;
+      --accent: #17624a;
+      --line: #d2ddd6;
+      --danger: #b42318;
+      --muted: #4b6356;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 10%, #dff3e8 0%, transparent 40%),
+        radial-gradient(circle at 90% 90%, #fff1d4 0%, transparent 35%),
+        var(--bg);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(780px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(20, 40, 29, 0.08);
+      overflow: hidden;
+    }
+    .hero {
+      background: linear-gradient(120deg, var(--accent), #0f4f3b);
+      color: #fff;
+      padding: 28px 28px 22px;
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 1.55rem;
+      line-height: 1.2;
+    }
+    .hero p {
+      margin: 10px 0 0;
+      opacity: 0.9;
+      font-size: 0.98rem;
+    }
+    form {
+      padding: 24px 28px 28px;
+      display: grid;
+      gap: 16px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 7px;
+    }
+    input[type="text"],
+    input[type="file"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 0.96rem;
+      background: #fff;
+    }
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+    }
+    .error {
+      border: 1px solid #f7d5d2;
+      background: #fff4f2;
+      color: var(--danger);
+      padding: 11px 12px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 13px 16px;
+      background: linear-gradient(120deg, var(--accent), #1b6f54);
+      color: #fff;
+      font-size: 0.98rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .12s ease, box-shadow .12s ease;
+      box-shadow: 0 6px 14px rgba(23, 98, 74, 0.25);
+    }
+    button:hover { transform: translateY(-1px); }
+    button[disabled] {
+      opacity: 0.8;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .hint {
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .progress {
+      display: none;
+      border: 1px solid #cde4d8;
+      background: #f4fbf7;
+      border-radius: 10px;
+      padding: 12px;
+      color: #1f5f45;
+      font-size: 0.95rem;
+      align-items: center;
+      gap: 10px;
+    }
+    .progress.show { display: flex; }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #b8d8c8;
+      border-top-color: #1f6c4f;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex: 0 0 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <section class="hero">
+      <h1>MVP проверки работ аналитиков</h1>
+      <p>Загрузите файл стажера и получите структурированный отчет для наставника.</p>
+    </section>
+    <form id="review-form" action="/review" method="post" enctype="multipart/form-data">
+      {% if error_message %}
+      <div class="error">{{ error_message }}</div>
+      {% endif %}
+
+      <div>
+        <label for="submission_file">Файл стажера (DOCX или PDF)</label>
+        <input id="submission_file" name="submission_file" type="file" accept=".docx,.pdf" required>
+      </div>
+
+      <div>
+        <label for="profile_id">Профиль задания</label>
+        <input id="profile_id" name="profile_id" type="text" value="{{ default_profile }}">
+      </div>
+
+      <label class="toggle" for="disable_llm">
+        <input id="disable_llm" name="disable_llm" type="checkbox" value="true">
+        Запустить только rule-based анализ (без LLM)
+      </label>
+
+      <button id="submit-btn" type="submit">Запустить проверку</button>
+      <div id="progress" class="progress" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Проверка запущена. Пожалуйста, дождитесь формирования отчета...</span>
+      </div>
+      <div class="hint">Результат откроется на следующей странице и сохранится в папку <code>outputs</code>.</div>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById('review-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const progress = document.getElementById('progress');
+
+    form.addEventListener('submit', function () {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Проверка выполняется...';
+      progress.classList.add('show');
+    });
+  </script>
+</body>
+</html>

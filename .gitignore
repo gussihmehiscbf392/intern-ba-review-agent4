@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.pytest_tmp/
+.tmp_*/
+tmp_*/
+tmp_*.log
+web_server_*.log
+outputs/
+uploads/
+calibration_inbox/
+.env

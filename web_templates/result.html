@@ -1,0 +1,468 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Результат проверки</title>
+  <style>
+    :root {
+      --bg: #f5f8f6;
+      --ink: #13251d;
+      --panel: #ffffff;
+      --line: #d4ded8;
+      --accent: #136146;
+      --high: #b42318;
+      --medium: #b54708;
+      --low: #126b39;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      padding: 22px;
+    }
+    .wrap {
+      width: min(1080px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    h1, h2 {
+      margin: 0;
+      line-height: 1.2;
+    }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.08rem; margin-bottom: 10px; }
+    .meta {
+      display: grid;
+      gap: 6px;
+      font-size: 0.95rem;
+    }
+    .score {
+      font-size: 1.95rem;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.94rem;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 8px 6px;
+      vertical-align: top;
+    }
+    th {
+      font-weight: 700;
+      background: #f8fbf9;
+    }
+    td:last-child { white-space: pre-line; }
+    .comment-cell { min-width: 420px; }
+    .structure-box, .criterion-box {
+      display: grid;
+      gap: 8px;
+      white-space: normal;
+      line-height: 1.34;
+    }
+    .structure-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      border: 1px solid var(--line);
+    }
+    .badge-ok {
+      background: #eaf7ef;
+      border-color: #b9dfc6;
+      color: #126b39;
+    }
+    .badge-bad {
+      background: #fff1f0;
+      border-color: #f5c2bd;
+      color: #b42318;
+    }
+    .structure-section, .criterion-section {
+      border-left: 3px solid var(--line);
+      padding-left: 9px;
+      display: grid;
+      gap: 4px;
+    }
+    .structure-section.critical, .criterion-section.critical { border-left-color: #d92d20; }
+    .structure-section.neutral, .criterion-section.neutral { border-left-color: #d6a100; }
+    .structure-section.llm, .criterion-section.llm { border-left-color: #5b7cfa; }
+    .criterion-section.manual { border-left-color: #9aa7a0; }
+    .structure-label {
+      font-weight: 700;
+      font-size: 0.86rem;
+      color: #33483d;
+    }
+    .compact-list {
+      margin: 0;
+      padding-left: 17px;
+      display: grid;
+      gap: 3px;
+    }
+    .structure-box details, .criterion-box details {
+      color: #33483d;
+      font-size: 0.9rem;
+    }
+    .structure-box summary, .criterion-box summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .issues, .feedback, .signals {
+      margin: 0;
+      padding-left: 20px;
+      display: grid;
+      gap: 8px;
+      font-size: 0.94rem;
+    }
+    .sev-high { color: var(--high); font-weight: 700; }
+    .sev-medium { color: var(--medium); font-weight: 700; }
+    .sev-low { color: var(--low); font-weight: 700; }
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    a.button {
+      text-decoration: none;
+      border: 1px solid #bcd2c6;
+      color: var(--ink);
+      padding: 9px 12px;
+      border-radius: 10px;
+      background: #f8fcfa;
+      font-size: 0.93rem;
+    }
+    a.button:hover { border-color: #8fb7a2; }
+    .note { color: #495f53; font-size: 0.92rem; }
+    .error {
+      border: 1px solid #f7d5d2;
+      background: #fff4f2;
+      color: #b42318;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="panel header">
+      <div>
+        <h1>Результат проверки</h1>
+        <div class="note">Файл: <strong>{{ input_filename }}</strong></div>
+      </div>
+      <a class="button" href="/">Новая проверка</a>
+    </section>
+
+    {% if result.status != "ok" %}
+    <section class="panel">
+      <div class="error">Ошибка: {{ result.error }}</div>
+    </section>
+    {% else %}
+    <section class="panel">
+      <div class="header">
+        <div class="meta">
+          <div>Профиль: <strong>{{ result.profile_id }}</strong></div>
+          <div>ФИО из работы: <strong>{% if result.intern_fio %}{{ result.intern_fio }}{% else %}не определено{% endif %}</strong></div>
+          <div>Уровень: <strong>{{ result.level }}</strong></div>
+          <div>Примечание: {{ result.level_note }}</div>
+          <div>LLM: <strong>{{ result.llm_status.status }}</strong>{% if result.llm_status.reason %} ({{ result.llm_status.reason }}){% endif %}</div>
+        </div>
+        <div>
+          <div class="score">{{ total_expected_points | default(0, true) }} / {{ max_total_points | default(15, true) }}</div>
+          <div class="note">Итоговый балл по критериям</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Оценка по критериям</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Критерий</th>
+            <th>Максимальный балл</th>
+            <th>Ожидаемый балл</th>
+            <th>Комментарий для наставника</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in criteria_view %}
+          <tr>
+            <td>{{ item.title }}</td>
+            <td>{{ item.max_points }}</td>
+            <td>{{ item.expected_points }}</td>
+            <td class="comment-cell">
+              {% if item.structure_view %}
+              <div class="criterion-box">
+                <div class="structure-head">
+                  <span class="badge {% if item.structure_view.status == 'ok' %}badge-ok{% else %}badge-bad{% endif %}">{{ item.structure_view.status_label }}</span>
+                  <span>Обязательные разделы: <strong>{{ item.structure_view.found_count }} / {{ item.structure_view.required_count }}</strong></span>
+                </div>
+
+                <div class="criterion-section critical">
+                  <div class="structure-label">Влияет на балл</div>
+                  <ul class="compact-list">
+                    {% for note in item.structure_view.critical_deviations %}
+                    <li>{{ note }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                <div class="criterion-section neutral">
+                  <div class="structure-label">Не влияет на балл, но стоит видеть</div>
+                  <ul class="compact-list">
+                    {% for note in item.structure_view.neutral_notes %}
+                    <li>{{ note }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                {% if item.structure_view.llm_summary or item.structure_view.llm_notes %}
+                <div class="criterion-section llm">
+                  <div class="structure-label">LLM-summary</div>
+                  {% if item.structure_view.llm_summary %}<div>{{ item.structure_view.llm_summary }}</div>{% endif %}
+                  {% if item.structure_view.llm_notes %}
+                  <ul class="compact-list">
+                    {% for note in item.structure_view.llm_notes %}
+                    <li>{{ note }}</li>
+                    {% endfor %}
+                  </ul>
+                  {% endif %}
+                </div>
+                {% endif %}
+
+                <div class="criterion-section">
+                  <div class="structure-label">Быстрая ручная проверка</div>
+                  <ul class="compact-list">
+                    {% for check in item.structure_view.quick_checks %}
+                    <li>{{ check }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                <details>
+                  <summary>Показать разделы из работы</summary>
+                  <ul class="compact-list">
+                    {% for section in item.structure_view.found_sections %}
+                    <li>{{ section }}</li>
+                    {% endfor %}
+                    {% for section in item.structure_view.added_sections %}
+                    <li>{{ section }} <span class="note">(добавлен вне шаблона)</span></li>
+                    {% endfor %}
+                  </ul>
+                </details>
+              </div>
+              {% elif item.formatting_view %}
+              <div class="criterion-box">
+                <div class="structure-head">
+                  <span class="badge {% if item.formatting_view.status == 'ok' %}badge-ok{% else %}badge-bad{% endif %}">{{ item.formatting_view.status_label }}</span>
+                  <span>Правила чеклиста: <strong>{{ item.formatting_view.passed_count }} / {{ item.formatting_view.total_count }}</strong></span>
+                  <span class="note">влияет на балл: {{ item.formatting_view.failed_count }}, предупреждений: {{ item.formatting_view.warning_count }}</span>
+                </div>
+
+                {% if item.formatting_view.status != 'ok' or item.formatting_view.has_actionable_issues %}
+                <div class="criterion-section critical">
+                  <div class="structure-label">{% if item.formatting_view.status == 'ok' %}Автопроверка нашла нарушения{% else %}Влияет на балл{% endif %}</div>
+                  <ul class="compact-list">
+                    {% for rule in item.formatting_view.score_reasons %}
+                    <li>
+                      <strong>{{ rule.title }}</strong>
+                      {% if rule.evidence %}
+                      <ul class="compact-list note">
+                        {% for evidence in rule.evidence %}
+                        <li>Пример: {{ evidence }}</li>
+                        {% endfor %}
+                      </ul>
+                      {% endif %}
+                      {% if rule.manual_hint %}
+                      <div class="note">{{ rule.manual_hint }}</div>
+                      {% endif %}
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+
+                <div class="criterion-section neutral">
+                  <div class="structure-label">{% if item.formatting_view.status == 'ok' %}Не влияет на балл, но стоит видеть{% else %}Предупреждения{% endif %}</div>
+                  <ul class="compact-list">
+                    {% for rule in item.formatting_view.warnings %}
+                    <li>
+                      <strong>{{ rule.title }}</strong>
+                      {% if rule.evidence %}
+                      <div class="note">Пример: {{ rule.evidence[0] }}</div>
+                      {% endif %}
+                      {% if rule.manual_hint %}
+                      <div class="note">{{ rule.manual_hint }}</div>
+                      {% endif %}
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                {% if item.formatting_view.status != 'ok' %}
+                <div class="criterion-section manual">
+                  <div class="structure-label">Быстрая ручная проверка</div>
+                  <ul class="compact-list">
+                    {% for rule in item.formatting_view.manual_checks %}
+                    <li>
+                      <strong>{{ rule.title }}</strong>
+                      {% if rule.manual_hint %}<div class="note">{{ rule.manual_hint }}</div>{% endif %}
+                      {% if rule.evidence %}<div class="note">Данные: {{ rule.evidence[0] }}</div>{% endif %}
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+
+                <details>
+                  <summary>Показать техническую сводку</summary>
+                  <ul class="compact-list">
+                    <li>Таблиц: {{ item.formatting_view.metadata_summary.table_count | default(0, true) }}</li>
+                    <li>Проверенных фрагментов шрифта: {{ item.formatting_view.metadata_summary.font_checked_text_runs | default(0, true) }}</li>
+                    <li>
+                      Фрагментов другим шрифтом: {{ item.formatting_view.metadata_summary.non_verdana_count | default(0, true) }}{% if item.formatting_view.font_summary_text %} ({{ item.formatting_view.font_summary_text }}){% endif %}
+                      {% if item.formatting_view.font_examples %}
+                      <ul class="compact-list note">
+                        {% for example in item.formatting_view.font_examples %}
+                        <li>Пример: {{ example }}</li>
+                        {% endfor %}
+                      </ul>
+                      {% endif %}
+                    </li>
+                    <li>{{ item.formatting_view.toc_note }}</li>
+                  </ul>
+                </details>
+              </div>
+              {% elif item.criterion_view %}
+              <div class="criterion-box">
+                <div class="structure-head">
+                  <span class="badge {% if item.criterion_view.status == 'ok' %}badge-ok{% else %}badge-bad{% endif %}">{{ item.criterion_view.status_label }}</span>
+                  <span>Балл: <strong>{{ item.expected_points }} / {{ item.max_points }}</strong></span>
+                </div>
+
+                <div class="criterion-section critical">
+                  <div class="structure-label">Влияет на балл</div>
+                  <ul class="compact-list">
+                    {% for note in item.criterion_view.score_notes %}
+                    <li>{{ note }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                <div class="criterion-section neutral">
+                  <div class="structure-label">Не влияет на балл, но стоит видеть</div>
+                  <ul class="compact-list">
+                    {% for note in item.criterion_view.neutral_notes %}
+                    <li>{{ note }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+
+                <div class="criterion-section manual">
+                  <div class="structure-label">Быстрая ручная проверка</div>
+                  <ul class="compact-list">
+                    {% for check in item.criterion_view.manual_checks %}
+                    <li>{{ check }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </div>
+              {% else %}
+              {{ item.mentor_comment }}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Фокус для наставника</h2>
+      {% if result.mentor_block.issues %}
+      <ul class="issues">
+        {% for issue in result.mentor_block.issues %}
+        <li>
+          {% if issue.severity == "high" %}
+          <span class="sev-high">[high]</span>
+          {% elif issue.severity == "medium" %}
+          <span class="sev-medium">[medium]</span>
+          {% else %}
+          <span class="sev-low">[low]</span>
+          {% endif %}
+          {{ issue.message }}
+          {% if issue.evidence %}<br><span class="note">Фрагмент: {{ issue.evidence }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="note">Критичных замечаний не найдено.</div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Обратная связь стажеру</h2>
+      {% if result.intern_block.feedback %}
+      <ul class="feedback">
+        {% for tip in result.intern_block.feedback %}
+        <li>{{ tip }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="note">Нет дополнительных рекомендаций.</div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Риск-сигналы ИИ</h2>
+      {% if result.ai_risk_signals %}
+      <ul class="signals">
+        {% for signal in result.ai_risk_signals %}
+        <li><strong>{{ signal.signal }}</strong>: {{ signal.explanation }}{% if signal.evidence %}<br><span class="note">{{ signal.evidence }}</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="note">Не выявлены.</div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <h2>Файлы результата</h2>
+      <div class="links">
+        <a class="button" href="/outputs/{{ md_name }}">Открыть Markdown</a>
+        <a class="button" href="/outputs/{{ json_name }}">Открыть JSON</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

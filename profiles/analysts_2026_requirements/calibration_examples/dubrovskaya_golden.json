@@ -1,0 +1,31 @@
+{
+  "id": "dubrovskaya_golden",
+  "source": "Ответ GPT по Дубровской.docx",
+  "level": "strong",
+  "overall_score": 86.67,
+  "overall_points": 13,
+  "max_points": 15,
+  "criterion_scores": {
+    "structure_template": 1,
+    "formatting_instruction": 1,
+    "literacy_punctuation": 0,
+    "document_versioning": 1,
+    "terms_glossary": 0,
+    "table_of_contents": 1,
+    "system_naming": 1,
+    "business_goals": 1,
+    "current_situation": 2,
+    "data_requirements": 1,
+    "visualization_requirements": 1,
+    "non_functional_requirements": 1,
+    "security_access": 1,
+    "independent_work": 1
+  },
+  "mentor_comment": "Хорошая работа: структура ФТТ выдержана, требования связаны с кейсом и интервью. Основные потери баллов: языковые ошибки и неполный раздел терминов/сокращений.",
+  "methodology_notes": [
+    "Не снижать балл за ER-диаграмму или полноценную модель данных в задании первой недели.",
+    "Критерий 4.2 требует сравнения используемых терминов с разделом терминов, а не только проверки наличия таблицы.",
+    "Критерий 4.6 получает 2 балла при наличии текстового AS-IS и схем процессов с ролями, сроками и артефактами.",
+    "Некритичные замечания по формулам и агрегациям данных являются зоной развития, но не обязательно основанием для 0 по 4.7."
+  ]
+}
