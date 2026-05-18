@@ -130,6 +130,18 @@ def _formatting_checklist_facts(
     list_format_samples_raw = paragraph_summary.get("list_format_samples", [])
     if not isinstance(list_format_samples_raw, list):
         list_format_samples_raw = []
+    table_caption_format_samples_raw = paragraph_summary.get("table_caption_format_samples", [])
+    if not isinstance(table_caption_format_samples_raw, list):
+        table_caption_format_samples_raw = []
+    figure_caption_format_samples_raw = paragraph_summary.get("figure_caption_format_samples", [])
+    if not isinstance(figure_caption_format_samples_raw, list):
+        figure_caption_format_samples_raw = []
+    table_cell_format_samples_raw = paragraph_summary.get("table_cell_format_samples", [])
+    if not isinstance(table_cell_format_samples_raw, list):
+        table_cell_format_samples_raw = []
+    table_border_samples_raw = paragraph_summary.get("table_border_samples", [])
+    if not isinstance(table_border_samples_raw, list):
+        table_border_samples_raw = []
     table_reference_summary = metadata.get("table_reference_summary", {})
     if not isinstance(table_reference_summary, dict):
         table_reference_summary = {}
@@ -212,6 +224,70 @@ def _formatting_checklist_facts(
                 errors.append(f"{text}: маркер списка не дефис")
             if re.match(r"^\d+[)]", text):
                 errors.append(f"{text}: нумерация должна быть арабской цифрой с точкой")
+            if len(errors) >= 8:
+                break
+        return _compact_unique(errors, limit=8)
+
+    def _caption_format_errors(samples: list[dict[str, Any]], expected_alignment: str) -> list[str]:
+        errors: list[str] = []
+        for item in samples:
+            text = str(item.get("text", ""))
+            fonts = [str(font).lower() for font in item.get("fonts", []) if str(font).strip()]
+            sizes = [float(size) for size in item.get("sizes_pt", []) if isinstance(size, (int, float))]
+            alignment = str(item.get("alignment", "")).lower()
+            indent = item.get("indent", {})
+            spacing = item.get("spacing", {})
+            if not isinstance(indent, dict):
+                indent = {}
+            if not isinstance(spacing, dict):
+                spacing = {}
+            if fonts and any(font != "verdana" for font in fonts):
+                errors.append(f"{text}: шрифт подписи {', '.join(item.get('fonts', []))}")
+            if sizes and any(abs(size - 9) > 0.1 for size in sizes):
+                errors.append(f"{text}: размер подписи {', '.join(str(size) for size in sizes)}")
+            if alignment and alignment != expected_alignment:
+                errors.append(f"{text}: выравнивание подписи {alignment}")
+            if any(indent.get(key) not in {None, 0} for key in ("left_twips", "first_line_twips", "hanging_twips")):
+                errors.append(f"{text}: у подписи есть отступы {indent}")
+            if spacing.get("before_twips") not in {None, 0}:
+                errors.append(f"{text}: у подписи есть интервал перед абзацем")
+            if len(errors) >= 8:
+                break
+        return _compact_unique(errors, limit=8)
+
+    def _list_punctuation_errors(samples: list[dict[str, Any]]) -> list[str]:
+        errors: list[str] = []
+        for item in samples:
+            text = str(item.get("text", "")).strip()
+            if not text:
+                continue
+            first = text[0]
+            if first.isalpha() and first != first.lower():
+                errors.append(f"{text}: пункт списка начинается с прописной буквы")
+            if not text.endswith((";", ".")):
+                errors.append(f"{text}: пункт списка заканчивается не точкой/точкой с запятой")
+            if len(errors) >= 8:
+                break
+        return _compact_unique(errors, limit=8)
+
+    def _table_cell_format_errors(samples: list[dict[str, Any]]) -> list[str]:
+        errors: list[str] = []
+        for item in samples:
+            text = str(item.get("text", ""))
+            fonts = [str(font).lower() for font in item.get("fonts", []) if str(font).strip()]
+            sizes = [float(size) for size in item.get("sizes_pt", []) if isinstance(size, (int, float))]
+            alignment = str(item.get("alignment", "")).lower()
+            is_header = bool(item.get("is_header"))
+            label = f"таблица {item.get('table_index')}, строка {item.get('row_index')}: {text}"
+            if fonts and any(font != "verdana" for font in fonts):
+                errors.append(f"{label}: шрифт {', '.join(item.get('fonts', []))}")
+            expected_size = 11 if is_header else 9
+            if sizes and any(abs(size - expected_size) > 0.1 for size in sizes):
+                errors.append(f"{label}: размер {', '.join(str(size) for size in sizes)}")
+            if is_header and item.get("run_count") and not item.get("all_bold"):
+                errors.append(f"{label}: заголовок таблицы не полужирный")
+            if is_header and alignment and alignment != "center":
+                errors.append(f"{label}: заголовок таблицы не по центру")
             if len(errors) >= 8:
                 break
         return _compact_unique(errors, limit=8)
@@ -387,19 +463,40 @@ def _formatting_checklist_facts(
             or ["Списки по DOCX-метаданным не найдены."],
         }
     )
-    checklist.extend(
+    list_indent_evidence = _compact_unique(
         [
-            _metadata_limited(
-                "list_indents",
-                "Перечисления 1/2/3+ уровней выполняются с заданными абзацными выступами/отступами 1/1,2/1,8 мм.",
-                "Уровни списков и indent/hanging извлечены в `list_format_samples`; итоговая оценка передается LLM.",
-            ),
-            _metadata_limited(
-                "list_capitalization_punctuation",
-                "Пункты перечислений начинаются с прописной буквы и заканчиваются точкой либо единообразно строчными с точкой с запятой.",
-                "Правило частично языковое и проверяется LLM по sample строкам списков.",
-            ),
-        ]
+            f"{item.get('indent', {})}: {item.get('text', '')}"
+            for item in list_format_samples_raw
+            if isinstance(item, dict)
+        ],
+        limit=6,
+    )
+    checklist.append(
+        {
+            "id": "list_indents",
+            "rule": "Перечисления 1/2/3+ уровней выполняются с заданными абзацными выступами/отступами 1/1,2/1,8 мм.",
+            "status": "pass" if list_format_samples_raw else "warn",
+            "blocking": False,
+            "error_count": 0 if list_format_samples_raw else 1,
+            "systemic": False,
+            "evidence": list_indent_evidence or ["Списки по DOCX-метаданным не найдены."],
+        }
+    )
+    list_punctuation_errors = _list_punctuation_errors([item for item in list_format_samples_raw if isinstance(item, dict)])
+    checklist.append(
+        {
+            "id": "list_capitalization_punctuation",
+            "rule": "Пункты перечислений начинаются с прописной буквы и заканчиваются точкой либо единообразно строчными с точкой с запятой.",
+            "status": _issue_status(len(list_punctuation_errors), len(list_punctuation_errors) >= 3),
+            "blocking": False,
+            "error_count": 3 if len(list_punctuation_errors) >= 3 else len(list_punctuation_errors),
+            "systemic": len(list_punctuation_errors) >= 3,
+            "evidence": list_punctuation_errors or _compact_unique(
+                [item.get("text", "") for item in list_format_samples_raw if isinstance(item, dict)],
+                limit=6,
+            )
+            or ["Списки по DOCX-метаданным не найдены."],
+        }
     )
 
     if doc_format != "docx":
@@ -451,27 +548,39 @@ def _formatting_checklist_facts(
             or [f"Таблиц найдено: {table_count}; подписей таблиц найдено: {table_caption_count}."],
         }
     )
+    table_caption_errors = _caption_format_errors(
+        [item for item in table_caption_format_samples_raw if isinstance(item, dict)],
+        expected_alignment="right",
+    )
+    table_caption_status = "pass" if table_caption_format_samples_raw and not table_caption_errors else _issue_status(
+        len(table_caption_errors),
+        len(table_caption_errors) >= 3,
+    )
     checklist.append(
         {
             "id": "table_caption_formatting",
             "rule": "Подпись таблицы: Verdana 9, одинарный интервал, выравнивание по правому краю, без отступов/интервалов.",
-            "status": "needs_review",
+            "status": table_caption_status,
             "blocking": False,
-            "error_count": 0,
-            "systemic": False,
-            "evidence": _compact_unique(table_captions, limit=8)
+            "error_count": 3 if len(table_caption_errors) >= 3 else len(table_caption_errors),
+            "systemic": len(table_caption_errors) >= 3,
+            "evidence": table_caption_errors or _compact_unique(table_captions, limit=8)
             or ["Формат подписи таблицы требует проверки по paragraph-format samples."],
         }
     )
+    table_cell_errors = _table_cell_format_errors([item for item in table_cell_format_samples_raw if isinstance(item, dict)])
     checklist.append(
         {
             "id": "table_body_and_header_formatting",
             "rule": "Текст в таблицах: Verdana 9 слева; строка заголовков - полужирный Verdana 11 по центру без отступов.",
-            "status": "needs_review",
+            "status": "pass" if table_cell_format_samples_raw and not table_cell_errors else _issue_status(
+                len(table_cell_errors),
+                len(table_cell_errors) >= 3,
+            ),
             "blocking": False,
-            "error_count": 0,
-            "systemic": False,
-            "evidence": _compact_unique(table_samples, limit=5)
+            "error_count": 3 if len(table_cell_errors) >= 3 else len(table_cell_errors),
+            "systemic": len(table_cell_errors) >= 3,
+            "evidence": table_cell_errors or _compact_unique(table_samples, limit=5)
             or ["Детальная проверка форматирования ячеек требует table cell metadata."],
         }
     )
@@ -487,15 +596,26 @@ def _formatting_checklist_facts(
             or [f"Таблиц найдено: {table_count}; ссылок на таблицы найдено: {table_reference_count}."],
         }
     )
+    border_errors = _compact_unique(
+        [
+            f"Таблица {item.get('index')}: границы таблицы не найдены в DOCX XML"
+            for item in table_border_samples_raw
+            if isinstance(item, dict) and not item.get("has_borders")
+        ],
+        limit=6,
+    )
     checklist.append(
         {
             "id": "table_borders_no_indents",
             "rule": "Границы таблиц оформляются без отступов.",
-            "status": "needs_review",
+            "status": "pass" if table_border_samples_raw and not border_errors else _issue_status(
+                len(border_errors),
+                len(border_errors) >= 3,
+            ),
             "blocking": False,
-            "error_count": 0,
-            "systemic": False,
-            "evidence": ["Границы и внутренние отступы таблиц требуют отдельного анализа table properties XML."],
+            "error_count": 3 if len(border_errors) >= 3 else len(border_errors),
+            "systemic": len(border_errors) >= 3,
+            "evidence": border_errors or [f"Проверено таблиц по DOCX XML: {len(table_border_samples_raw)}."],
         }
     )
 
@@ -521,16 +641,23 @@ def _formatting_checklist_facts(
             or [f"Рисунков найдено: {drawing_count}; подписей: {figure_caption_count}; ссылок: {figure_reference_count}."],
         }
     )
+    figure_caption_format_errors = _caption_format_errors(
+        [item for item in figure_caption_format_samples_raw if isinstance(item, dict)],
+        expected_alignment="center",
+    )
     checklist.append(
         {
             "id": "figure_caption_formatting_and_readability",
             "rule": "Подпись рисунка: Verdana 9, одинарный интервал, по центру; рисунки читаемы при печати A4, допускается альбомная ориентация.",
-            "status": "needs_review",
+            "status": "pass" if figure_caption_format_samples_raw and not figure_caption_format_errors else _issue_status(
+                len(figure_caption_format_errors),
+                len(figure_caption_format_errors) >= 3,
+            ),
             "blocking": False,
-            "error_count": 0,
-            "systemic": False,
-            "evidence": _compact_unique(figure_captions, limit=8)
-            or ["Читаемость рисунков и точное оформление подписи требуют LLM/ручной проверки."],
+            "error_count": 3 if len(figure_caption_format_errors) >= 3 else len(figure_caption_format_errors),
+            "systemic": len(figure_caption_format_errors) >= 3,
+            "evidence": figure_caption_format_errors or _compact_unique(figure_captions, limit=8)
+            or ["Подписи рисунков по DOCX-метаданным не найдены; читаемость самих изображений автоматически не оценивается."],
         }
     )
 

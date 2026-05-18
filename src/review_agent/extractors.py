@@ -255,6 +255,49 @@ def _indent_fact(p_pr: ET.Element | None) -> dict[str, Any]:
     }
 
 
+def _paragraph_format_details(
+    paragraph: ET.Element,
+    style_fonts: dict[str, list[str]],
+    default_fonts: list[str],
+    theme_fonts: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    p_pr = paragraph.find("w:pPr", _DOCX_NS)
+    p_style = p_pr.find("w:pStyle", _DOCX_NS) if p_pr is not None else None
+    style_id = _w_attr(p_style, "val")
+    alignment = _w_attr(p_pr.find("w:jc", _DOCX_NS), "val") if p_pr is not None else ""
+    spacing = _spacing_fact(p_pr)
+    indent = _indent_fact(p_pr)
+
+    run_count = 0
+    bold_runs = 0
+    run_fonts: list[str] = []
+    run_sizes: list[float] = []
+    for run in paragraph.findall("w:r", _DOCX_NS):
+        run_text = "".join((node.text or "") for node in run.findall(".//w:t", _DOCX_NS))
+        if not re.sub(r"\s+", " ", run_text).strip():
+            continue
+        run_count += 1
+        formatting = _run_formatting(run, style_id, style_fonts, default_fonts, theme_fonts)
+        run_fonts.extend(formatting["fonts"])
+        size_pt = formatting["size_pt"]
+        if size_pt is not None:
+            run_sizes.append(size_pt)
+        if formatting["bold"]:
+            bold_runs += 1
+
+    return {
+        "style_id": style_id,
+        "alignment": alignment,
+        "spacing": spacing,
+        "indent": indent,
+        "run_count": run_count,
+        "bold_run_count": bold_runs,
+        "fonts": sorted(set(run_fonts), key=str.lower),
+        "sizes_pt": sorted(set(run_sizes)),
+        "all_bold": bool(run_count and bold_runs == run_count),
+    }
+
+
 def _paragraph_role(text: str, style_id: str, is_numbered: bool) -> str:
     prepared = re.sub(r"\s+", " ", text).strip()
     low = prepared.lower()
@@ -374,6 +417,8 @@ def _extract_docx_formatting_metadata(
     body_indent_issues: list[dict[str, str]] = []
     heading_format_samples: list[dict[str, Any]] = []
     list_format_samples: list[dict[str, Any]] = []
+    table_caption_format_samples: list[dict[str, Any]] = []
+    figure_caption_format_samples: list[dict[str, Any]] = []
     shaded_or_highlighted_count = 0
     body_child_index = 0
     table_paragraph_ids = {
@@ -547,6 +592,30 @@ def _extract_docx_formatting_metadata(
                     "numbering_level": ilvl,
                 }
             )
+        if role == "table_caption" and len(table_caption_format_samples) < 20:
+            table_caption_format_samples.append(
+                {
+                    "text": _clip_metadata_text(cleaned, 140),
+                    "fonts": sorted(set(run_fonts), key=str.lower),
+                    "sizes_pt": sorted(set(run_sizes)),
+                    "all_bold": bool(run_count and bold_runs == run_count),
+                    "alignment": alignment,
+                    "spacing": spacing,
+                    "indent": indent,
+                }
+            )
+        if role == "figure_caption" and len(figure_caption_format_samples) < 20:
+            figure_caption_format_samples.append(
+                {
+                    "text": _clip_metadata_text(cleaned, 140),
+                    "fonts": sorted(set(run_fonts), key=str.lower),
+                    "sizes_pt": sorted(set(run_sizes)),
+                    "all_bold": bool(run_count and bold_runs == run_count),
+                    "alignment": alignment,
+                    "spacing": spacing,
+                    "indent": indent,
+                }
+            )
 
         if _looks_like_template_hint(cleaned):
             template_hint_candidates.append(paragraph_fact)
@@ -558,15 +627,58 @@ def _extract_docx_formatting_metadata(
             numbered_samples.append(_clip_metadata_text(cleaned))
 
     tables: list[dict[str, Any]] = []
+    table_cell_format_samples: list[dict[str, Any]] = []
+    table_border_samples: list[dict[str, Any]] = []
     for idx, table in enumerate(root.findall(".//w:tbl", _DOCX_NS), start=1):
         rows = table.findall("w:tr", _DOCX_NS)
         row_facts: list[list[str]] = []
-        for row in rows[:4]:
+        tbl_pr = table.find("w:tblPr", _DOCX_NS)
+        tbl_borders = tbl_pr.find("w:tblBorders", _DOCX_NS) if tbl_pr is not None else None
+        table_border_samples.append(
+            {
+                "index": idx,
+                "has_borders": tbl_borders is not None and len(list(tbl_borders)) > 0,
+            }
+        )
+        for row_idx, row in enumerate(rows[:4], start=1):
             cells = row.findall("w:tc", _DOCX_NS)
             row_facts.append([
                 _clip_metadata_text(" ".join(_paragraph_text(p) for p in cell.findall(".//w:p", _DOCX_NS)), 90)
                 for cell in cells[:5]
             ])
+            for cell_idx, cell in enumerate(cells[:5], start=1):
+                tc_pr = cell.find("w:tcPr", _DOCX_NS)
+                tc_mar = tc_pr.find("w:tcMar", _DOCX_NS) if tc_pr is not None else None
+                margin_values = []
+                if tc_mar is not None:
+                    margin_values = [
+                        _twips(_w_attr(node, "w"))
+                        for node in list(tc_mar)
+                        if _w_attr(node, "w")
+                    ]
+                for paragraph in cell.findall(".//w:p", _DOCX_NS)[:2]:
+                    text = _paragraph_text(paragraph)
+                    cleaned_cell = re.sub(r"\s+", " ", text).strip()
+                    if not cleaned_cell:
+                        continue
+                    details = _paragraph_format_details(paragraph, style_fonts, default_fonts, theme_fonts)
+                    table_cell_format_samples.append(
+                        {
+                            "table_index": idx,
+                            "row_index": row_idx,
+                            "cell_index": cell_idx,
+                            "is_header": row_idx == 1,
+                            "text": _clip_metadata_text(cleaned_cell, 120),
+                            "cell_margins_twips": [value for value in margin_values if value is not None],
+                            **details,
+                        }
+                    )
+                    if len(table_cell_format_samples) >= 40:
+                        break
+                if len(table_cell_format_samples) >= 40:
+                    break
+            if len(table_cell_format_samples) >= 40:
+                break
         texts = [cell for row in row_facts for cell in row if cell]
         tables.append(
             {
@@ -639,6 +751,10 @@ def _extract_docx_formatting_metadata(
             "body_indent_issues": body_indent_issues,
             "heading_format_samples": heading_format_samples,
             "list_format_samples": list_format_samples,
+            "table_caption_format_samples": table_caption_format_samples,
+            "figure_caption_format_samples": figure_caption_format_samples,
+            "table_cell_format_samples": table_cell_format_samples,
+            "table_border_samples": table_border_samples,
         },
         "font_summary": {
             "expected_font": "Verdana",
