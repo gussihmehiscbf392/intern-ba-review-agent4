@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from .engine import run_review
 from .reporting import build_criteria_view
+from .reporting import build_llm_status_view
 from .reporting import save_outputs
 
 
@@ -161,6 +162,7 @@ async def page_review(
         enable_llm=not disable_llm,
     )
     criteria_view = build_criteria_view(result) if result.get("status") == "ok" else []
+    llm_status_view = build_llm_status_view(result) if result.get("status") == "ok" else {}
     max_total_points = (
         sum(int(item.get("weight", 0)) for item in result.get("criteria", []))
         if result.get("status") == "ok"
@@ -177,6 +179,7 @@ async def page_review(
             "request": request,
             "result": result,
             "criteria_view": criteria_view,
+            "llm_status_view": llm_status_view,
             "max_total_points": max_total_points,
             "total_expected_points": total_expected_points,
             "json_name": json_path.name,

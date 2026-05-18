@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from review_agent.reporting import build_criteria_view
+from review_agent.reporting import build_llm_status_view
 from review_agent.reporting import build_markdown_report
 from review_agent.reporting import save_outputs
 
@@ -26,6 +27,65 @@ def test_save_outputs_writes_json_and_markdown(tmp_path):
     assert md_path.exists()
     assert json.loads(json_path.read_text(encoding="utf-8"))["status"] == "ok"
     assert "# Отчет проверки" in md_path.read_text(encoding="utf-8")
+
+
+def test_llm_status_view_explains_ok_status():
+    view = build_llm_status_view(
+        {
+            "llm_status": {
+                "status": "ok",
+                "model": "gpt-4o-mini",
+                "api_key_source": "OPENAI_API_KEY",
+                "base_url": "https://api.proxyapi.ru/openai/v1",
+                "payload": {
+                    "assessment_sequence": [
+                        "structure_template_assist",
+                        "formatting_instruction",
+                        "business_goals",
+                        "literacy_punctuation_language_check",
+                    ],
+                    "stage_errors": [],
+                },
+                "fallback_attempts": [
+                    {"api_key_source": "OPENAI_EDU_API_KEY", "reason": "quota exceeded"}
+                ],
+            }
+        }
+    )
+
+    assert view["status_label"] == "Работает"
+    assert "выполнено 4 из 4" in view["headline"]
+    assert "Модель: gpt-4o-mini" in view["checks"]
+    assert "Ключ: OPENAI_API_KEY" in view["checks"]
+    assert "Ошибок LLM-этапов нет" in view["checks"]
+    assert view["successful_stages"][-1] == "Язык и пунктуация"
+    assert view["fallback_attempts"][0]["api_key_source"] == "OPENAI_EDU_API_KEY"
+
+
+def test_llm_status_view_explains_stage_errors():
+    view = build_llm_status_view(
+        {
+            "llm_status": {
+                "status": "error",
+                "reason": "LLM-сбой: не удалось выполнить ни один этап (2 ошибок)",
+                "model": "gpt-4o-mini",
+                "api_key_source": "OPENAI_API_KEY",
+                "stage_errors": [
+                    {"criterion_id": "formatting_instruction", "reason": "Connection error"},
+                    {"criterion_id": "business_goals", "reason": "Connection error"},
+                ],
+            }
+        }
+    )
+
+    assert view["status_label"] == "Ошибка"
+    assert "успешно 0 из 2" in view["headline"]
+    assert view["failed_count"] == 2
+    assert view["stage_errors"][0] == {
+        "stage_id": "formatting_instruction",
+        "stage": "Оформление",
+        "reason": "Connection error",
+    }
 
 
 def test_markdown_uses_mentor_style_comment_with_evidence():

@@ -106,6 +106,34 @@
       border-color: #f5c2bd;
       color: #b42318;
     }
+    .badge-neutral {
+      background: #f3f6f4;
+      border-color: #d4ded8;
+      color: #495f53;
+    }
+    .llm-card {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+      max-width: 720px;
+    }
+    .llm-card.ok { border-color: #b9dfc6; background: #f4fbf6; }
+    .llm-card.bad { border-color: #f5c2bd; background: #fff8f6; }
+    .llm-card.neutral { background: #f8fbf9; }
+    .llm-head {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .llm-grid {
+      display: grid;
+      gap: 4px;
+      font-size: 0.92rem;
+    }
     .structure-section, .criterion-section {
       border-left: 3px solid var(--line);
       padding-left: 9px;
@@ -215,7 +243,52 @@
           <div>ФИО из работы: <strong>{% if result.intern_fio %}{{ result.intern_fio }}{% else %}не определено{% endif %}</strong></div>
           <div>Уровень: <strong>{{ result.level }}</strong></div>
           <div>Примечание: {{ result.level_note }}</div>
-          <div>LLM: <strong>{{ result.llm_status.status }}</strong>{% if result.llm_status.reason %} ({{ result.llm_status.reason }}){% endif %}</div>
+          <div class="llm-card {{ llm_status_view.status_class }}">
+            <div class="llm-head">
+              <span class="badge {% if llm_status_view.status_class == 'ok' %}badge-ok{% elif llm_status_view.status_class == 'bad' %}badge-bad{% else %}badge-neutral{% endif %}">
+                LLM: {{ llm_status_view.status_label }}
+              </span>
+              <span>{{ llm_status_view.headline }}</span>
+            </div>
+            {% if llm_status_view.checks %}
+            <div class="llm-grid">
+              {% for check in llm_status_view.checks %}
+              <div>{{ check }}</div>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if llm_status_view.successful_stages or llm_status_view.stage_errors or llm_status_view.fallback_attempts %}
+            <details>
+              <summary>Показать технические детали LLM</summary>
+              {% if llm_status_view.successful_stages %}
+              <div class="structure-label">Успешные этапы</div>
+              <ul class="compact-list">
+                {% for stage in llm_status_view.successful_stages %}
+                <li>{{ stage }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if llm_status_view.stage_errors %}
+              <div class="structure-label">Ошибки этапов</div>
+              <ul class="compact-list">
+                {% for error in llm_status_view.stage_errors %}
+                <li><strong>{{ error.stage }}</strong>: {{ error.reason }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if llm_status_view.fallback_attempts %}
+              <div class="structure-label">Fallback по ключам</div>
+              <ul class="compact-list">
+                {% for attempt in llm_status_view.fallback_attempts %}
+                <li>
+                  <strong>{{ attempt.api_key_source }}</strong>{% if attempt.base_url %} через {{ attempt.base_url }}{% endif %}: {{ attempt.reason }}
+                </li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </details>
+            {% endif %}
+          </div>
         </div>
         <div>
           <div class="score">{{ total_expected_points | default(0, true) }} / {{ max_total_points | default(15, true) }}</div>

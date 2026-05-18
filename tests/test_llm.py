@@ -103,7 +103,39 @@ def test_run_llm_assessment_falls_back_to_commercial_key(monkeypatch):
     assert result["status"] == "ok"
     assert result["api_key_source"] == "OPENAI_API_KEY"
     assert result["fallback_attempts"] == [
-        {"api_key_source": "OPENAI_EDU_API_KEY", "reason": "quota exceeded"}
+        {
+            "api_key_source": "OPENAI_EDU_API_KEY",
+            "reason": "quota exceeded",
+            "base_url": "https://api.openai.com/v1",
+        }
+    ]
+
+
+def test_run_llm_assessment_preserves_stage_errors(monkeypatch):
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.api_key = kwargs["api_key"]
+
+    def fake_run_with_client(client, model, profile, submission_text, rule_summary):
+        return {
+            "status": "error",
+            "reason": "LLM-сбой: не удалось выполнить ни один этап (1 ошибок)",
+            "model": model,
+            "stage_errors": [{"criterion_id": "business_goals", "reason": "Connection error"}],
+            "assessment_sequence": [],
+        }
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setattr("review_agent.llm._run_llm_assessment_with_client", fake_run_with_client)
+    monkeypatch.setenv("OPENAI_API_KEY", "commercial-key")
+    monkeypatch.delenv("OPENAI_EDU_API_KEY", raising=False)
+
+    result = run_llm_assessment(profile={}, submission_text="", rule_summary={})
+
+    assert result["status"] == "error"
+    assert result["stage_errors"] == [{"criterion_id": "business_goals", "reason": "Connection error"}]
+    assert result["fallback_attempts"][0]["stage_errors"] == [
+        {"criterion_id": "business_goals", "reason": "Connection error"}
     ]
 
 

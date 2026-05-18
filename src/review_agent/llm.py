@@ -979,6 +979,7 @@ def _run_llm_assessment_with_client(
             )
             language_text = _response_text(language_response)
             payload["language_check"] = _normalize_language_payload(_parse_llm_payload(language_text))
+            payload["assessment_sequence"].append("literacy_punctuation_language_check")
         except Exception as exc:
             if _is_likely_key_or_quota_error(exc):
                 return {"status": "error", "reason": f"LLM-сбой: {exc}", "retry_with_next_key": True}
@@ -992,6 +993,9 @@ def _run_llm_assessment_with_client(
             return {
                 "status": "error",
                 "reason": f"LLM-сбой: не удалось выполнить ни один этап ({len(payload['stage_errors'])} ошибок)",
+                "model": model,
+                "assessment_sequence": payload["assessment_sequence"],
+                "stage_errors": payload["stage_errors"],
             }
         return {"status": "ok", "model": model, "payload": payload}
     except Exception as exc:
@@ -1013,7 +1017,8 @@ def run_llm_assessment(
         return {"status": "skipped", "reason": "Пакет openai не установлен"}
 
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    failed_attempts: list[dict[str, str]] = []
+    failed_attempts: list[dict[str, Any]] = []
+    last_result: dict[str, Any] = {}
 
     for key_candidate in key_candidates:
         key_name = key_candidate["name"]
@@ -1037,6 +1042,7 @@ def run_llm_assessment(
         except Exception as exc:
             result = {"status": "error", "reason": f"LLM-сбой: {exc}"}
 
+        last_result = result
         result["api_key_source"] = key_name
         if "base_url" in client_kwargs:
             result["base_url"] = client_kwargs["base_url"]
@@ -1046,12 +1052,23 @@ def run_llm_assessment(
                 result["fallback_attempts"] = failed_attempts
             return result
 
-        failed_attempts.append({"api_key_source": key_name, "reason": str(result.get("reason", ""))})
+        failed_attempt: dict[str, Any] = {"api_key_source": key_name, "reason": str(result.get("reason", ""))}
+        if result.get("stage_errors"):
+            failed_attempt["stage_errors"] = result["stage_errors"]
+        if result.get("assessment_sequence"):
+            failed_attempt["assessment_sequence"] = result["assessment_sequence"]
+        if result.get("base_url"):
+            failed_attempt["base_url"] = result["base_url"]
+        failed_attempts.append(failed_attempt)
         if not result.get("retry_with_next_key") and key_name == "OPENAI_API_KEY":
             break
 
-    return {
+    final_result = {
         "status": "error",
         "reason": failed_attempts[-1]["reason"] if failed_attempts else "LLM-сбой: ключи не сработали",
         "fallback_attempts": failed_attempts,
     }
+    for key in ("model", "api_key_source", "base_url", "assessment_sequence", "stage_errors"):
+        if key in last_result:
+            final_result[key] = last_result[key]
+    return final_result

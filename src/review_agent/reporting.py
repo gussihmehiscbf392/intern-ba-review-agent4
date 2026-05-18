@@ -623,6 +623,148 @@ def _structure_view(
     }
 
 
+def _short_text(value: Any, limit: int = 220) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) > limit:
+        return text[: limit - 3].rstrip() + "..."
+    return text
+
+
+def _llm_stage_label(stage_id: str) -> str:
+    labels = {
+        "structure_template_assist": "Структура: подсказки наставнику",
+        "formatting_instruction": "Оформление",
+        "literacy_punctuation_language_check": "Язык и пунктуация",
+        "literacy_punctuation": "Грамотность",
+        "document_versioning": "Версия документа",
+        "terms_glossary": "Термины и сокращения",
+        "table_of_contents": "Оглавление",
+        "system_naming": "Наименование системы",
+        "business_goals": "Цели",
+        "current_situation": "Текущая ситуация",
+        "data_requirements": "Требования к данным",
+        "visualization_requirements": "Визуализация",
+        "non_functional_requirements": "НФТ",
+        "security_access": "Безопасность и доступы",
+        "independent_work": "Самостоятельность",
+    }
+    return labels.get(stage_id, stage_id or "неизвестный этап")
+
+
+def _llm_stage_errors(llm_status: dict[str, Any]) -> list[dict[str, str]]:
+    raw_errors = llm_status.get("stage_errors", [])
+    if not raw_errors and isinstance(llm_status.get("payload"), dict):
+        raw_errors = llm_status["payload"].get("stage_errors", [])
+    if not isinstance(raw_errors, list):
+        return []
+
+    result: list[dict[str, str]] = []
+    for item in raw_errors:
+        if not isinstance(item, dict):
+            continue
+        stage_id = str(item.get("criterion_id", "")).strip()
+        reason = _short_text(item.get("reason", ""), limit=260)
+        result.append(
+            {
+                "stage_id": stage_id,
+                "stage": _llm_stage_label(stage_id),
+                "reason": reason or "этап завершился ошибкой без подробного сообщения",
+            }
+        )
+    return result
+
+
+def _llm_successful_stages(llm_status: dict[str, Any]) -> list[str]:
+    raw_sequence = llm_status.get("assessment_sequence", [])
+    if not raw_sequence and isinstance(llm_status.get("payload"), dict):
+        raw_sequence = llm_status["payload"].get("assessment_sequence", [])
+    if not isinstance(raw_sequence, list):
+        return []
+    return [_llm_stage_label(str(item)) for item in raw_sequence if str(item).strip()]
+
+
+def build_llm_status_view(result: dict[str, Any]) -> dict[str, Any]:
+    llm_status = result.get("llm_status", {})
+    if not isinstance(llm_status, dict):
+        llm_status = {}
+
+    status = str(llm_status.get("status", "unknown")).strip() or "unknown"
+    reason = _short_text(llm_status.get("reason", ""))
+    model = _short_text(llm_status.get("model", ""))
+    api_key_source = _short_text(llm_status.get("api_key_source", ""))
+    base_url = _short_text(llm_status.get("base_url", ""))
+    fallback_attempts = [
+        {
+            "api_key_source": _short_text(item.get("api_key_source", "")),
+            "base_url": _short_text(item.get("base_url", "")),
+            "reason": _short_text(item.get("reason", ""), limit=260),
+        }
+        for item in llm_status.get("fallback_attempts", [])
+        if isinstance(item, dict)
+    ] if isinstance(llm_status.get("fallback_attempts", []), list) else []
+
+    successful_stages = _llm_successful_stages(llm_status)
+    stage_errors = _llm_stage_errors(llm_status)
+    total_stages = len(successful_stages) + len(stage_errors)
+
+    if status == "ok":
+        status_label = "Работает"
+        status_class = "ok"
+        headline = (
+            f"LLM работает: выполнено {len(successful_stages)} из {total_stages} этапов."
+            if total_stages
+            else "LLM работает: API ответил успешно."
+        )
+    elif status == "skipped":
+        status_label = "Отключен"
+        status_class = "neutral"
+        headline = f"LLM не запускался: {reason or 'слой отключен или не настроен'}."
+    elif status == "error":
+        status_label = "Ошибка"
+        status_class = "bad"
+        headline = (
+            f"LLM не отработал: успешно {len(successful_stages)} из {total_stages} этапов."
+            if total_stages
+            else f"LLM не отработал: {reason or 'нет подробностей ошибки'}."
+        )
+    else:
+        status_label = status or "Неизвестно"
+        status_class = "neutral"
+        headline = f"Статус LLM: {status_label}."
+
+    checks: list[str] = []
+    if model:
+        checks.append(f"Модель: {model}")
+    if api_key_source:
+        checks.append(f"Ключ: {api_key_source}")
+    if base_url:
+        checks.append(f"API endpoint: {base_url}")
+    if fallback_attempts:
+        checks.append(f"Fallback-попыток: {len(fallback_attempts)}")
+    if status == "ok" and not stage_errors:
+        checks.append("Ошибок LLM-этапов нет")
+    if status == "error" and reason:
+        checks.append(f"Причина: {reason}")
+
+    return {
+        "status": status,
+        "status_label": status_label,
+        "status_class": status_class,
+        "headline": headline,
+        "reason": reason,
+        "model": model,
+        "api_key_source": api_key_source,
+        "base_url": base_url,
+        "checks": checks,
+        "successful_count": len(successful_stages),
+        "failed_count": len(stage_errors),
+        "total_count": total_stages,
+        "successful_stages": successful_stages,
+        "stage_errors": stage_errors,
+        "fallback_attempts": fallback_attempts,
+    }
+
+
 def build_criteria_view(result: dict[str, Any]) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
     for item in result.get("criteria", []):
@@ -702,6 +844,7 @@ def build_markdown_report(result: dict[str, Any]) -> str:
     criteria = result.get("criteria", [])
     max_total_points = sum(int(item.get("weight", 0)) for item in criteria)
     criteria_rows = build_criteria_view(result)
+    llm_status_view = build_llm_status_view(result)
     total_expected_points = sum(row["expected_points"] for row in criteria_rows)
 
     lines: list[str] = []
@@ -713,6 +856,21 @@ def build_markdown_report(result: dict[str, Any]) -> str:
     lines.append(f"- Итоговый балл: **{total_expected_points} / {max_total_points}**")
     lines.append(f"- Уровень: **{result.get('level')}**")
     lines.append(f"- Примечание по калибровке: {result.get('level_note')}")
+    lines.append("")
+
+    lines.append("## Статус LLM")
+    lines.append(f"- **{llm_status_view['status_label']}**: {llm_status_view['headline']}")
+    for check in llm_status_view["checks"]:
+        lines.append(f"- {check}")
+    if llm_status_view["stage_errors"]:
+        lines.append("- Ошибки этапов:")
+        for error in llm_status_view["stage_errors"][:8]:
+            lines.append(f"  - {error['stage']}: {error['reason']}")
+    if llm_status_view["fallback_attempts"]:
+        lines.append("- Fallback по ключам:")
+        for attempt in llm_status_view["fallback_attempts"]:
+            base_url = f" через {attempt['base_url']}" if attempt["base_url"] else ""
+            lines.append(f"  - {attempt['api_key_source']}{base_url}: {attempt['reason']}")
     lines.append("")
 
     lines.append("## Оценка по критериям")
