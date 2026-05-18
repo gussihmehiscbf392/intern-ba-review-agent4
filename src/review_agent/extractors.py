@@ -275,6 +275,34 @@ def _paragraph_role(text: str, style_id: str, is_numbered: bool) -> str:
     return "body"
 
 
+def _is_front_matter_body_paragraph(
+    *,
+    text: str,
+    paragraph_index: int,
+    run_sizes: list[float],
+    alignment: str,
+) -> bool:
+    if paragraph_index > 12:
+        return False
+
+    prepared = re.sub(r"\s+", " ", text).strip()
+    low = prepared.lower()
+    if not prepared:
+        return False
+
+    looks_like_title = any(
+        marker in low
+        for marker in (
+            "функционально-технические требования",
+            "функциональные технические требования",
+            "технические требования",
+        )
+    )
+    has_title_size = bool(run_sizes and max(run_sizes) >= 14)
+    is_centered = alignment in {"center", "both"}
+    return looks_like_title or has_title_size or (is_centered and paragraph_index <= 6)
+
+
 def _extract_docx_formatting_metadata(
     root: ET.Element,
     styles_root: ET.Element | None = None,
@@ -305,6 +333,11 @@ def _extract_docx_formatting_metadata(
     list_format_samples: list[dict[str, Any]] = []
     shaded_or_highlighted_count = 0
     body_child_index = 0
+    table_paragraph_ids = {
+        id(paragraph)
+        for table in root.findall(".//w:tbl", _DOCX_NS)
+        for paragraph in table.findall(".//w:p", _DOCX_NS)
+    }
 
     for child in root.findall("w:body/*", _DOCX_NS):
         body_child_index += 1
@@ -333,7 +366,8 @@ def _extract_docx_formatting_metadata(
         spacing = _spacing_fact(p_pr)
         indent = _indent_fact(p_pr)
         alignment = _w_attr(p_pr.find("w:jc", _DOCX_NS), "val") if p_pr is not None else ""
-        role = _paragraph_role(cleaned, style_id, is_numbered)
+        is_table_paragraph = id(paragraph) in table_paragraph_ids
+        role = "table_cell" if is_table_paragraph else _paragraph_role(cleaned, style_id, is_numbered)
 
         paragraph_fact = {
             "index": idx,
@@ -402,6 +436,15 @@ def _extract_docx_formatting_metadata(
         paragraph_fact["sizes_pt"] = sorted(set(run_sizes))
         paragraph_fact["all_bold"] = bool(run_count and bold_runs == run_count)
         paragraph_fact["all_caps"] = cleaned == cleaned.upper() and any(char.isalpha() for char in cleaned)
+        if role == "body" and _is_front_matter_body_paragraph(
+            text=cleaned,
+            paragraph_index=idx,
+            run_sizes=run_sizes,
+            alignment=alignment,
+        ):
+            role = "front_matter"
+            paragraph_fact["role"] = role
+            block_sequence[-1]["role"] = role
 
         if role == "body":
             if run_sizes and any(abs(size - 9) > 0.1 for size in run_sizes) and len(non_body_size_samples) < 20:

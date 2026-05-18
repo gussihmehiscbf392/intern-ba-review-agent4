@@ -75,6 +75,41 @@ def test_extract_docx_toc_without_spaces_and_shading_title_not_template_hint(tmp
     assert metadata["shaded_or_highlighted_count"] == 1
 
 
+def test_body_font_size_samples_ignore_title_page_and_table_headers(tmp_path):
+    body_xml = """
+    <w:p>
+      <w:pPr><w:jc w:val="center"/></w:pPr>
+      <w:r><w:rPr><w:sz w:val="48"/></w:rPr><w:t>Функционально-технические требования</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:jc w:val="center"/></w:pPr>
+      <w:r><w:rPr><w:sz w:val="48"/></w:rPr><w:t>автоматизация отчетности сети строительных материалов «Стройторг»</w:t></w:r>
+    </w:p>
+    <w:tbl>
+      <w:tr>
+        <w:tc>
+          <w:p>
+            <w:r><w:rPr><w:sz w:val="22"/><w:b/></w:rPr><w:t>Версия</w:t></w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>Обычный абзац основного текста с неверным размером.</w:t></w:r>
+    </w:p>
+    """
+    docx_path = make_docx_from_body_xml(tmp_path / "body-sizes.docx", body_xml)
+
+    result = extract_submission(str(docx_path))
+    samples = result.formatting_metadata["paragraph_format_summary"]["non_body_size_samples"]
+    sample_text = " ".join(item["text"] for item in samples)
+
+    assert "Обычный абзац основного текста" in sample_text
+    assert "Функционально-технические требования" not in sample_text
+    assert "автоматизация отчетности" not in sample_text
+    assert "Версия" not in sample_text
+
+
 def test_extract_docx_font_metadata_from_runs_and_styles(tmp_path):
     body_xml = """
     <w:p>
