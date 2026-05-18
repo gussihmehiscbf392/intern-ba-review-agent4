@@ -371,7 +371,7 @@ def test_formatting_view_groups_rules_for_web():
     assert view["toc_note"].startswith("Строк оглавления: 8. Это хорошо")
 
 
-def test_formatting_view_keeps_actionable_rule_visible_when_score_is_awarded():
+def test_formatting_view_moves_actionable_rule_to_warnings_when_score_is_awarded():
     payload = {
         "status": "ok",
         "profile_id": "analysts_2026_requirements",
@@ -417,12 +417,13 @@ def test_formatting_view_keeps_actionable_rule_visible_when_score_is_awarded():
     view = row["formatting_view"]
 
     assert view["status_label"] == "Зачтено"
-    assert view["has_actionable_issues"] is True
+    assert view["has_actionable_issues"] is False
     assert view["failed_count"] == 0
-    assert view["score_reasons"][0]["title"] == "Шрифт Verdana"
-    assert view["score_reasons"][0]["evidence"] == ["Arial: первый фрагмент", "Arial: второй фрагмент"]
+    assert view["score_reasons"][0]["title"] == "не выявлены"
+    assert view["warnings"][0]["title"] == "Шрифт Verdana"
+    assert view["warnings"][0]["evidence"] == ["Arial: первый фрагмент", "Arial: второй фрагмент"]
     assert view["font_examples"] == ["Arial: первый фрагмент", "Arial: второй фрагмент"]
-    assert "Ctrl+H" in view["score_reasons"][0]["manual_hint"]
+    assert "Ctrl+H" in view["warnings"][0]["manual_hint"]
     assert "Само число не снижает балл" in view["toc_note"]
 
 

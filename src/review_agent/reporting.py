@@ -421,10 +421,12 @@ def _formatting_view(
 
     is_awarded = expected_points == max_points
     actionable_issues = blocking or systemic or failed
-    score_reasons = _expand_systemic_formatting_reasons(rules, actionable_issues)
+    score_reasons = [] if is_awarded else _expand_systemic_formatting_reasons(rules, actionable_issues)
     if not score_reasons:
         score_reasons = [{"title": "не выявлены", "evidence": [], "manual_hint": ""}]
 
+    if is_awarded and actionable_issues:
+        warned = _expand_systemic_formatting_reasons(rules, actionable_issues) + warned
     if not warned:
         warned = [{"title": "не выявлены", "evidence": [], "manual_hint": ""}]
     visible_manual_checks = [] if is_awarded else needs_review
@@ -490,7 +492,7 @@ def _formatting_view(
         "font_summary_text": font_summary_text,
         "font_examples": font_examples,
         "toc_note": _formatting_toc_note(metadata_summary),
-        "has_actionable_issues": bool(actionable_issues),
+        "has_actionable_issues": bool(actionable_issues) and not is_awarded,
         "estimated_error_count": estimated_error_count,
         "fallback_comment": fallback_comment,
     }

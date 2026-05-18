@@ -261,11 +261,53 @@ def _formatting_checklist_facts(
             text = str(item.get("text", "")).strip()
             if not text:
                 continue
-            first = text[0]
-            if first.isalpha() and first != first.lower():
-                errors.append(f"{text}: пункт списка начинается с прописной буквы")
             if not text.endswith((";", ".")):
                 errors.append(f"{text}: пункт списка заканчивается не точкой/точкой с запятой")
+            if len(errors) >= 8:
+                break
+        return _compact_unique(errors, limit=8)
+
+    def _numbered_heading_indent_errors(samples: list[dict[str, Any]]) -> list[str]:
+        expected_left_by_level = {1: 652, 2: 907, 3: 1021}
+        errors: list[str] = []
+        for item in samples:
+            text = str(item.get("text", ""))
+            match = re.match(r"^(\d+(?:\.\d+)*)", text)
+            level = len(match.group(1).split(".")) if match else None
+            if level is None:
+                raw_level = str(item.get("numbering_level", ""))
+                try:
+                    level = int(raw_level) + 1
+                except Exception:
+                    continue
+            expected = expected_left_by_level.get(min(level, 3))
+            indent = item.get("indent", {})
+            if not isinstance(indent, dict) or expected is None:
+                continue
+            left = indent.get("left_twips") or 0
+            hanging = indent.get("hanging_twips") or 0
+            if abs(left - expected) > 160 and abs(hanging - expected) > 160:
+                errors.append(f"{text}: выступ/отступ заголовка {indent}, ожидается около {expected} twips")
+            if len(errors) >= 8:
+                break
+        return _compact_unique(errors, limit=8)
+
+    def _unnumbered_heading_indent_errors(samples: list[dict[str, Any]]) -> list[str]:
+        errors: list[str] = []
+        expected_first_line = 709
+        for item in samples:
+            text = str(item.get("text", ""))
+            if re.match(r"^\d+(?:\.\d+)*", text):
+                continue
+            indent = item.get("indent", {})
+            if not isinstance(indent, dict):
+                continue
+            first_line = indent.get("first_line_twips") or 0
+            left = indent.get("left_twips") or 0
+            if first_line == 0 and left == 0:
+                continue
+            if abs(first_line - expected_first_line) > 160 and abs(left - expected_first_line) > 160:
+                errors.append(f"{text}: отступ ненумерованного заголовка {indent}, ожидается около {expected_first_line} twips")
             if len(errors) >= 8:
                 break
         return _compact_unique(errors, limit=8)
@@ -432,19 +474,41 @@ def _formatting_checklist_facts(
             }
         )
 
-    checklist.extend(
-        [
-            _metadata_limited(
-                "numbered_heading_indents",
-                "Пронумерованные заголовки 1/2/3+ уровней выполняются с заданными абзацными выступами 1,15/1,6/1,8 мм.",
-                "DOCX содержит indent/hanging в twips; точное сопоставление с мм и уровнем заголовка передается LLM как метаданные.",
-            ),
-            _metadata_limited(
-                "unnumbered_heading_indent",
-                "Непронумерованные заголовки выполняются с абзацного отступа 1,25 мм.",
-                "Непронумерованные заголовки требуют экспертной сверки по indent/firstLine в DOCX-метаданных.",
-            ),
-        ]
+    numbered_heading_indent_errors = _numbered_heading_indent_errors(
+        [item for item in heading_format_samples_raw if isinstance(item, dict)]
+    )
+    checklist.append(
+        {
+            "id": "numbered_heading_indents",
+            "rule": "Пронумерованные заголовки 1/2/3+ уровней выполняются с заданными абзацными выступами 1,15/1,6/1,8 мм.",
+            "status": "warn" if numbered_heading_indent_errors else "pass",
+            "blocking": False,
+            "error_count": 1 if numbered_heading_indent_errors else 0,
+            "systemic": False,
+            "evidence": numbered_heading_indent_errors or _compact_unique(
+                [item.get("text", "") for item in heading_format_samples_raw if isinstance(item, dict)],
+                limit=6,
+            )
+            or ["Нумерованные заголовки по DOCX-метаданным не найдены."],
+        }
+    )
+    unnumbered_heading_indent_errors = _unnumbered_heading_indent_errors(
+        [item for item in heading_format_samples_raw if isinstance(item, dict)]
+    )
+    checklist.append(
+        {
+            "id": "unnumbered_heading_indent",
+            "rule": "Непронумерованные заголовки выполняются с абзацного отступа 1,25 мм.",
+            "status": "warn" if unnumbered_heading_indent_errors else "pass",
+            "blocking": False,
+            "error_count": 1 if unnumbered_heading_indent_errors else 0,
+            "systemic": False,
+            "evidence": unnumbered_heading_indent_errors or _compact_unique(
+                [item.get("text", "") for item in heading_format_samples_raw if isinstance(item, dict)],
+                limit=6,
+            )
+            or ["Ненумерованные заголовки по DOCX-метаданным не найдены."],
+        }
     )
 
     list_errors = _list_errors([item for item in list_format_samples_raw if isinstance(item, dict)])
@@ -487,10 +551,10 @@ def _formatting_checklist_facts(
         {
             "id": "list_capitalization_punctuation",
             "rule": "Пункты перечислений начинаются с прописной буквы и заканчиваются точкой либо единообразно строчными с точкой с запятой.",
-            "status": _issue_status(len(list_punctuation_errors), len(list_punctuation_errors) >= 3),
+            "status": "warn" if list_punctuation_errors else "pass",
             "blocking": False,
-            "error_count": 3 if len(list_punctuation_errors) >= 3 else len(list_punctuation_errors),
-            "systemic": len(list_punctuation_errors) >= 3,
+            "error_count": 1 if list_punctuation_errors else 0,
+            "systemic": False,
             "evidence": list_punctuation_errors or _compact_unique(
                 [item.get("text", "") for item in list_format_samples_raw if isinstance(item, dict)],
                 limit=6,
@@ -608,13 +672,10 @@ def _formatting_checklist_facts(
         {
             "id": "table_borders_no_indents",
             "rule": "Границы таблиц оформляются без отступов.",
-            "status": "pass" if table_border_samples_raw and not border_errors else _issue_status(
-                len(border_errors),
-                len(border_errors) >= 3,
-            ),
+            "status": "warn" if border_errors else "pass",
             "blocking": False,
-            "error_count": 3 if len(border_errors) >= 3 else len(border_errors),
-            "systemic": len(border_errors) >= 3,
+            "error_count": 1 if border_errors else 0,
+            "systemic": False,
             "evidence": border_errors or [f"Проверено таблиц по DOCX XML: {len(table_border_samples_raw)}."],
         }
     )
@@ -2052,6 +2113,8 @@ def analyze_rule_based(
         "list_font_and_markers",
         "toc_format",
         "heading_numbering",
+        "table_caption_formatting",
+        "table_body_and_header_formatting",
         "page_numbering_footer",
         "no_template_explanations",
     }

@@ -184,6 +184,61 @@ def _extract_style_fonts(
     return default_fonts, style_fonts
 
 
+def _merge_fact(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    keys = set(base) | set(override)
+    return {
+        key: override.get(key) if override.get(key) not in {None, ""} else base.get(key)
+        for key in keys
+    }
+
+
+def _extract_style_paragraph_props(styles_root: ET.Element | None) -> dict[str, dict[str, Any]]:
+    if styles_root is None:
+        return {}
+
+    raw: dict[str, dict[str, Any]] = {}
+    for style in styles_root.findall(".//w:style", _DOCX_NS):
+        style_id = _w_attr(style, "styleId")
+        if not style_id:
+            continue
+        p_pr = style.find("w:pPr", _DOCX_NS)
+        num_pr = p_pr.find("w:numPr", _DOCX_NS) if p_pr is not None else None
+        raw[style_id] = {
+            "based_on": _w_attr(style.find("w:basedOn", _DOCX_NS), "val"),
+            "indent": _indent_fact(p_pr),
+            "spacing": _spacing_fact(p_pr),
+            "alignment": _w_attr(p_pr.find("w:jc", _DOCX_NS), "val") if p_pr is not None else "",
+            "numbering_id": _w_attr(num_pr.find("w:numId", _DOCX_NS), "val") if num_pr is not None else "",
+            "numbering_level": _w_attr(num_pr.find("w:ilvl", _DOCX_NS), "val") if num_pr is not None else "",
+        }
+
+    resolved: dict[str, dict[str, Any]] = {}
+
+    def resolve(style_id: str, seen: set[str] | None = None) -> dict[str, Any]:
+        if style_id in resolved:
+            return resolved[style_id]
+        seen = seen or set()
+        if style_id in seen:
+            return raw.get(style_id, {})
+        seen.add(style_id)
+        current = raw.get(style_id, {})
+        based_on = str(current.get("based_on", ""))
+        parent = resolve(based_on, seen) if based_on else {}
+        result = {
+            "indent": _merge_fact(parent.get("indent", {}), current.get("indent", {})),
+            "spacing": _merge_fact(parent.get("spacing", {}), current.get("spacing", {})),
+            "alignment": current.get("alignment") or parent.get("alignment", ""),
+            "numbering_id": current.get("numbering_id") or parent.get("numbering_id", ""),
+            "numbering_level": current.get("numbering_level") or parent.get("numbering_level", ""),
+        }
+        resolved[style_id] = result
+        return result
+
+    for style_id in raw:
+        resolve(style_id)
+    return resolved
+
+
 def _font_is_verdana(font_name: str) -> bool:
     return font_name.strip().lower() == "verdana"
 
@@ -260,13 +315,17 @@ def _paragraph_format_details(
     style_fonts: dict[str, list[str]],
     default_fonts: list[str],
     theme_fonts: dict[str, str] | None = None,
+    style_paragraph_props: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     p_pr = paragraph.find("w:pPr", _DOCX_NS)
     p_style = p_pr.find("w:pStyle", _DOCX_NS) if p_pr is not None else None
     style_id = _w_attr(p_style, "val")
+    style_props = (style_paragraph_props or {}).get(style_id, {})
     alignment = _w_attr(p_pr.find("w:jc", _DOCX_NS), "val") if p_pr is not None else ""
-    spacing = _spacing_fact(p_pr)
-    indent = _indent_fact(p_pr)
+    if not alignment:
+        alignment = str(style_props.get("alignment", ""))
+    spacing = _merge_fact(style_props.get("spacing", {}), _spacing_fact(p_pr))
+    indent = _merge_fact(style_props.get("indent", {}), _indent_fact(p_pr))
 
     run_count = 0
     bold_runs = 0
@@ -313,7 +372,7 @@ def _paragraph_role(text: str, style_id: str, is_numbered: bool) -> str:
         return "toc_line"
     if _looks_like_heading(prepared, style_id):
         return "heading"
-    if is_numbered or prepared.startswith("-"):
+    if prepared.startswith("-"):
         return "list_item"
     return "body"
 
@@ -396,6 +455,7 @@ def _extract_docx_formatting_metadata(
 ) -> dict[str, Any]:
     theme_fonts = _theme_font_values(theme_root)
     default_fonts, style_fonts = _extract_style_fonts(styles_root, theme_fonts)
+    style_paragraph_props = _extract_style_paragraph_props(styles_root)
     numbering_map = _extract_numbering_map(numbering_root)
     paragraphs: list[dict[str, Any]] = []
     template_hint_candidates: list[dict[str, Any]] = []
@@ -445,8 +505,13 @@ def _extract_docx_formatting_metadata(
             style_counts[style_id] = style_counts.get(style_id, 0) + 1
 
         num_pr = p_pr.find("w:numPr", _DOCX_NS) if p_pr is not None else None
+        style_props = style_paragraph_props.get(style_id, {})
         ilvl = _w_attr(num_pr.find("w:ilvl", _DOCX_NS), "val") if num_pr is not None else ""
         num_id = _w_attr(num_pr.find("w:numId", _DOCX_NS), "val") if num_pr is not None else ""
+        if not ilvl:
+            ilvl = str(style_props.get("numbering_level", ""))
+        if not num_id:
+            num_id = str(style_props.get("numbering_id", ""))
         marker_info = _numbering_marker_info(numbering_map, num_id, ilvl)
         num_fmt = marker_info.get("num_fmt", "")
         lvl_text = marker_info.get("lvl_text", "")
@@ -454,11 +519,15 @@ def _extract_docx_formatting_metadata(
         has_visual_hinting = _has_visual_hinting(paragraph)
         if has_visual_hinting:
             shaded_or_highlighted_count += 1
-        spacing = _spacing_fact(p_pr)
-        indent = _indent_fact(p_pr)
+        spacing = _merge_fact(style_props.get("spacing", {}), _spacing_fact(p_pr))
+        indent = _merge_fact(style_props.get("indent", {}), _indent_fact(p_pr))
         alignment = _w_attr(p_pr.find("w:jc", _DOCX_NS), "val") if p_pr is not None else ""
+        if not alignment:
+            alignment = str(style_props.get("alignment", ""))
         is_table_paragraph = id(paragraph) in table_paragraph_ids
         role = "table_cell" if is_table_paragraph else _paragraph_role(cleaned, style_id, is_numbered)
+        if role == "body" and num_fmt == "bullet":
+            role = "list_item"
 
         paragraph_fact = {
             "index": idx,
@@ -661,7 +730,13 @@ def _extract_docx_formatting_metadata(
                     cleaned_cell = re.sub(r"\s+", " ", text).strip()
                     if not cleaned_cell:
                         continue
-                    details = _paragraph_format_details(paragraph, style_fonts, default_fonts, theme_fonts)
+                    details = _paragraph_format_details(
+                        paragraph,
+                        style_fonts,
+                        default_fonts,
+                        theme_fonts,
+                        style_paragraph_props,
+                    )
                     table_cell_format_samples.append(
                         {
                             "table_index": idx,
