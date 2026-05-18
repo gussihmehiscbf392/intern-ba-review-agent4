@@ -195,12 +195,20 @@ def _formatting_checklist_facts(
             fonts = [str(font).lower() for font in item.get("fonts", []) if str(font).strip()]
             sizes = [float(size) for size in item.get("sizes_pt", []) if isinstance(size, (int, float))]
             is_numbered_item = bool(item.get("starts_with_arabic_dot")) or bool(re.match(r"^\d+\.", text))
-            is_bulleted_item = bool(item.get("numbering_level")) and not is_numbered_item
+            numbering_format = str(item.get("numbering_format", "")).lower()
+            numbering_text = str(item.get("numbering_text", "")).strip()
+            is_bulleted_item = (
+                numbering_format == "bullet"
+                or (bool(item.get("numbering_id")) and not is_numbered_item)
+                or (bool(item.get("numbering_level")) and not is_numbered_item)
+            )
             if fonts and any(font != "verdana" for font in fonts):
                 errors.append(f"{text}: шрифт списка {', '.join(item.get('fonts', []))}")
             if sizes and any(abs(size - 9) > 0.1 for size in sizes):
                 errors.append(f"{text}: размер списка {', '.join(str(size) for size in sizes)}")
-            if text.startswith("•") or text.startswith("*") or (is_bulleted_item and not item.get("starts_with_hyphen")):
+            if text.startswith("•") or text.startswith("*") or (
+                is_bulleted_item and not item.get("starts_with_hyphen") and numbering_text not in {"-", "–", "—"}
+            ):
                 errors.append(f"{text}: маркер списка не дефис")
             if re.match(r"^\d+[)]", text):
                 errors.append(f"{text}: нумерация должна быть арабской цифрой с точкой")
@@ -1928,7 +1936,18 @@ def analyze_rule_based(
     font_ratio = non_verdana_count / font_checked_runs if font_checked_runs else 0.0
     title_placeholder_left = any("наименование проекта системы" in _normalize(line) for line in lines[:30])
     font_is_dominant_failure = "font_verdana" in formatting_systemic_rule_ids and font_ratio >= 0.5
-    formatting_has_strong_failure = bool(formatting_systemic_rule_ids & strong_formatting_failure_rules) or font_is_dominant_failure
+    drawing_count = int(metadata_summary.get("drawing_count", 0) or 0)
+    figure_caption_count = int(metadata_summary.get("figure_caption_count", 0) or 0)
+    figures_without_any_captions = (
+        "figure_numbering_caption_and_references" in formatting_systemic_rule_ids
+        and drawing_count >= 3
+        and figure_caption_count == 0
+    )
+    formatting_has_strong_failure = (
+        bool(formatting_systemic_rule_ids & strong_formatting_failure_rules)
+        or font_is_dominant_failure
+        or figures_without_any_captions
+    )
     formatting_instruction_score = (
         100.0 if template_hint_hits == 0 and not title_placeholder_left and not formatting_has_strong_failure else 0.0
     )

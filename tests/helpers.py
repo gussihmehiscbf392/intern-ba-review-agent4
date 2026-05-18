@@ -23,7 +23,13 @@ def make_minimal_docx(path: Path, paragraphs: list[str]) -> Path:
     return path
 
 
-def make_docx_from_body_xml(path: Path, body_xml: str, styles_xml: str = "", theme_xml: str = "") -> Path:
+def make_docx_from_body_xml(
+    path: Path,
+    body_xml: str,
+    styles_xml: str = "",
+    theme_xml: str = "",
+    numbering_xml: str = "",
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -39,4 +45,6 @@ def make_docx_from_body_xml(path: Path, body_xml: str, styles_xml: str = "", the
             archive.writestr("word/styles.xml", styles_xml)
         if theme_xml:
             archive.writestr("word/theme/theme1.xml", theme_xml)
+        if numbering_xml:
+            archive.writestr("word/numbering.xml", numbering_xml)
     return path

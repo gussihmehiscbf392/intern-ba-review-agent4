@@ -275,6 +275,47 @@ def _paragraph_role(text: str, style_id: str, is_numbered: bool) -> str:
     return "body"
 
 
+def _extract_numbering_map(numbering_root: ET.Element | None) -> dict[tuple[str, str], dict[str, str]]:
+    if numbering_root is None:
+        return {}
+
+    abstract_levels: dict[tuple[str, str], dict[str, str]] = {}
+    for abstract in numbering_root.findall("w:abstractNum", _DOCX_NS):
+        abstract_id = _w_attr(abstract, "abstractNumId")
+        if not abstract_id:
+            continue
+        for level in abstract.findall("w:lvl", _DOCX_NS):
+            ilvl = _w_attr(level, "ilvl") or "0"
+            num_fmt = _w_attr(level.find("w:numFmt", _DOCX_NS), "val")
+            lvl_text = _w_attr(level.find("w:lvlText", _DOCX_NS), "val")
+            abstract_levels[(abstract_id, ilvl)] = {
+                "num_fmt": num_fmt,
+                "lvl_text": lvl_text,
+            }
+
+    numbering_map: dict[tuple[str, str], dict[str, str]] = {}
+    for num in numbering_root.findall("w:num", _DOCX_NS):
+        num_id = _w_attr(num, "numId")
+        abstract_ref = num.find("w:abstractNumId", _DOCX_NS)
+        abstract_id = _w_attr(abstract_ref, "val")
+        if not num_id or not abstract_id:
+            continue
+        for (candidate_abstract_id, ilvl), info in abstract_levels.items():
+            if candidate_abstract_id == abstract_id:
+                numbering_map[(num_id, ilvl)] = dict(info)
+    return numbering_map
+
+
+def _numbering_marker_info(
+    numbering_map: dict[tuple[str, str], dict[str, str]],
+    num_id: str,
+    ilvl: str,
+) -> dict[str, str]:
+    if not num_id:
+        return {}
+    return numbering_map.get((num_id, ilvl or "0")) or numbering_map.get((num_id, "0")) or {}
+
+
 def _is_front_matter_body_paragraph(
     *,
     text: str,
@@ -308,9 +349,11 @@ def _extract_docx_formatting_metadata(
     styles_root: ET.Element | None = None,
     footer_roots: list[ET.Element] | None = None,
     theme_root: ET.Element | None = None,
+    numbering_root: ET.Element | None = None,
 ) -> dict[str, Any]:
     theme_fonts = _theme_font_values(theme_root)
     default_fonts, style_fonts = _extract_style_fonts(styles_root, theme_fonts)
+    numbering_map = _extract_numbering_map(numbering_root)
     paragraphs: list[dict[str, Any]] = []
     template_hint_candidates: list[dict[str, Any]] = []
     heading_candidates: list[dict[str, Any]] = []
@@ -359,6 +402,9 @@ def _extract_docx_formatting_metadata(
         num_pr = p_pr.find("w:numPr", _DOCX_NS) if p_pr is not None else None
         ilvl = _w_attr(num_pr.find("w:ilvl", _DOCX_NS), "val") if num_pr is not None else ""
         num_id = _w_attr(num_pr.find("w:numId", _DOCX_NS), "val") if num_pr is not None else ""
+        marker_info = _numbering_marker_info(numbering_map, num_id, ilvl)
+        num_fmt = marker_info.get("num_fmt", "")
+        lvl_text = marker_info.get("lvl_text", "")
         is_numbered = bool(num_id or re.search(r"^\d+(?:\.\d+)*\.?\s+\S", cleaned))
         has_visual_hinting = _has_visual_hinting(paragraph)
         if has_visual_hinting:
@@ -375,6 +421,8 @@ def _extract_docx_formatting_metadata(
             "style_id": style_id,
             "numbering_level": ilvl,
             "numbering_id": num_id,
+            "numbering_format": num_fmt,
+            "numbering_text": lvl_text,
             "is_numbered": is_numbered,
             "has_visual_hinting": has_visual_hinting,
             "role": role,
@@ -488,8 +536,10 @@ def _extract_docx_formatting_metadata(
             list_format_samples.append(
                 {
                     "text": _clip_metadata_text(cleaned, 140),
-                    "starts_with_hyphen": cleaned.startswith("-"),
+                    "starts_with_hyphen": cleaned.startswith("-") or lvl_text in {"-", "–", "—"},
                     "starts_with_arabic_dot": bool(re.match(r"^\d+\.", cleaned)),
+                    "numbering_format": num_fmt,
+                    "numbering_text": lvl_text,
                     "fonts": sorted(set(run_fonts), key=str.lower),
                     "sizes_pt": sorted(set(run_sizes)),
                     "spacing": spacing,
@@ -645,6 +695,7 @@ def _extract_docx(path: Path) -> ExtractedSubmission:
             xml = archive.read("word/document.xml")
             styles_xml = archive.read("word/styles.xml") if "word/styles.xml" in archive.namelist() else b""
             theme_xml = archive.read("word/theme/theme1.xml") if "word/theme/theme1.xml" in archive.namelist() else b""
+            numbering_xml = archive.read("word/numbering.xml") if "word/numbering.xml" in archive.namelist() else b""
             footer_xmls = [
                 archive.read(name)
                 for name in archive.namelist()
@@ -656,6 +707,7 @@ def _extract_docx(path: Path) -> ExtractedSubmission:
     root = ET.fromstring(xml)
     styles_root = ET.fromstring(styles_xml.strip()) if styles_xml else None
     theme_root = ET.fromstring(theme_xml.strip()) if theme_xml else None
+    numbering_root = ET.fromstring(numbering_xml.strip()) if numbering_xml else None
     footer_roots = [ET.fromstring(raw.strip()) for raw in footer_xmls]
 
     lines: list[str] = []
@@ -669,7 +721,7 @@ def _extract_docx(path: Path) -> ExtractedSubmission:
         text="\n".join(cleaned),
         lines=cleaned,
         extension=".docx",
-        formatting_metadata=_extract_docx_formatting_metadata(root, styles_root, footer_roots, theme_root),
+        formatting_metadata=_extract_docx_formatting_metadata(root, styles_root, footer_roots, theme_root, numbering_root),
     )
 
 

@@ -321,6 +321,82 @@ def test_rule_based_formatting_score_does_not_fail_on_metadata_without_template_
     assert font_rule["status"] == "fail"
 
 
+def test_rule_based_list_marker_accepts_hyphen_from_docx_numbering():
+    profile = load_profile("analysts_2026_requirements")
+    lines = [
+        "сокращение времени сотрудников на подготовку отчетности;",
+        "повышение качества данных для принятия управленческих решений;",
+    ]
+    metadata = {
+        "format": "docx",
+        "table_count": 1,
+        "heading_style_count": 1,
+        "font_summary": {"checked_text_runs": 2, "non_verdana_count": 0, "font_counts": {"Verdana": 2}},
+        "toc_like_line_count": 3,
+        "template_hint_candidates": [],
+        "template_hint_candidate_count": 0,
+        "paragraph_format_summary": {
+            "list_format_samples": [
+                {
+                    "text": "сокращение времени сотрудников на подготовку отчетности;",
+                    "starts_with_hyphen": True,
+                    "starts_with_arabic_dot": False,
+                    "numbering_id": "7",
+                    "numbering_level": "0",
+                    "numbering_format": "bullet",
+                    "numbering_text": "-",
+                    "fonts": ["Verdana"],
+                    "sizes_pt": [9],
+                },
+                {
+                    "text": "повышение качества данных для принятия управленческих решений;",
+                    "starts_with_hyphen": True,
+                    "starts_with_arabic_dot": False,
+                    "numbering_id": "7",
+                    "numbering_level": "0",
+                    "numbering_format": "bullet",
+                    "numbering_text": "-",
+                    "fonts": ["Verdana"],
+                    "sizes_pt": [9],
+                },
+            ],
+        },
+    }
+
+    result = analyze_rule_based("\n".join(lines), lines, profile, formatting_metadata=metadata)
+    facts = result.coverage_summary["formatting_instruction"]["checklist_facts"]
+    list_rule = next(item for item in facts["checklist"] if item["id"] == "list_font_and_markers")
+
+    assert list_rule["status"] == "pass"
+    assert not any("маркер списка не дефис" in item for item in list_rule["evidence"])
+
+
+def test_rule_based_formatting_fails_when_figures_have_no_captions():
+    profile = load_profile("analysts_2026_requirements")
+    lines = ["Раздел содержит диаграммы без подписей."]
+    metadata = {
+        "format": "docx",
+        "table_count": 1,
+        "heading_style_count": 1,
+        "font_summary": {"checked_text_runs": 2, "non_verdana_count": 0, "font_counts": {"Verdana": 2}},
+        "toc_like_line_count": 3,
+        "template_hint_candidates": [],
+        "template_hint_candidate_count": 0,
+        "figure_summary": {
+            "drawing_count": 3,
+            "figure_caption_count": 0,
+            "figure_reference_count": 0,
+            "figure_captions": [],
+            "figure_references": [],
+        },
+    }
+
+    result = analyze_rule_based("\n".join(lines), lines, profile, formatting_metadata=metadata)
+    formatting = next(item for item in result.criteria if item.criterion_id == "formatting_instruction")
+
+    assert formatting.score == 0.0
+
+
 def test_merge_scores_can_use_llm_formatting_score_after_rule_metadata_warning(monkeypatch):
     monkeypatch.setenv("LLM_SCORE_MODE", "direct")
     rule_scores = [

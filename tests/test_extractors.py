@@ -110,6 +110,37 @@ def test_body_font_size_samples_ignore_title_page_and_table_headers(tmp_path):
     assert "Версия" not in sample_text
 
 
+def test_extract_docx_reads_hyphen_list_marker_from_numbering(tmp_path):
+    body_xml = """
+    <w:p>
+      <w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr>
+      <w:r><w:t>сокращение времени сотрудников на подготовку отчетности;</w:t></w:r>
+    </w:p>
+    """
+    numbering_xml = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:abstractNum w:abstractNumId="3">
+        <w:lvl w:ilvl="0">
+          <w:numFmt w:val="bullet"/>
+          <w:lvlText w:val="-"/>
+        </w:lvl>
+      </w:abstractNum>
+      <w:num w:numId="7">
+        <w:abstractNumId w:val="3"/>
+      </w:num>
+    </w:numbering>
+    """
+    docx_path = make_docx_from_body_xml(tmp_path / "hyphen-list.docx", body_xml, numbering_xml=numbering_xml)
+
+    result = extract_submission(str(docx_path))
+    sample = result.formatting_metadata["paragraph_format_summary"]["list_format_samples"][0]
+
+    assert sample["numbering_format"] == "bullet"
+    assert sample["numbering_text"] == "-"
+    assert sample["starts_with_hyphen"] is True
+
+
 def test_extract_docx_font_metadata_from_runs_and_styles(tmp_path):
     body_xml = """
     <w:p>
