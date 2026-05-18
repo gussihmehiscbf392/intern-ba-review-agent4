@@ -249,6 +249,9 @@ def _manual_check_hint(rule_id: str, rule: str) -> str:
             "Быстро найти в Word: Ctrl+H -> Больше -> Формат -> Шрифт, выбрать найденный шрифт "
             "из примеров ниже и нажимать «Найти далее». Можно также искать точный фрагмент через Ctrl+F."
         ),
+        "body_font_size_9": "Открыть указанные фрагменты в Word и проверить размер основного текста: по инструкции должен быть 9 пт.",
+        "body_no_indent": "Выделить указанный абзац в Word и открыть настройки абзаца: у основного текста не должно быть отступа или выступа.",
+        "list_font_and_markers": "Проверить списки рядом с указанными фрагментами: маркированные пункты должны быть дефисами, текст - Verdana 9.",
         "toc_format": (
             "Это диагностическая метрика, а не самостоятельная ошибка: строки оглавления нужны, чтобы понять, "
             "похоже ли оглавление на настоящее и можно ли сверять его с разделами/страницами."
@@ -270,6 +273,7 @@ def _formatting_rule_view(item: dict[str, Any]) -> dict[str, Any]:
     rule = str(item.get("rule", "")).strip()
     evidence = _as_text_list(item.get("evidence"))
     evidence_limit = 8 if rule_id == "font_verdana" else 3
+    prepared_evidence = [_formatting_evidence_item(rule_id, value) for value in evidence[:evidence_limit]]
     return {
         "id": rule_id,
         "title": _rule_short_name(rule_id, rule),
@@ -278,9 +282,103 @@ def _formatting_rule_view(item: dict[str, Any]) -> dict[str, Any]:
         "error_count": int(item.get("error_count", 0) or 0),
         "systemic": bool(item.get("systemic")),
         "blocking": bool(item.get("blocking")),
-        "evidence": evidence[:evidence_limit],
+        "evidence": prepared_evidence,
+        "raw_evidence": evidence[:evidence_limit],
+        "impact_reason": _formatting_impact_reason(
+            rule_id=rule_id,
+            status=str(item.get("status", "")).strip(),
+            error_count=int(item.get("error_count", 0) or 0),
+            systemic=bool(item.get("systemic")),
+            blocking=bool(item.get("blocking")),
+        ),
         "manual_hint": _manual_check_hint(rule_id, rule),
     }
+
+
+def _formatting_evidence_item(rule_id: str, value: str) -> str:
+    text = _escape_table_cell(value)
+    if not text:
+        return ""
+    if rule_id == "systemic_formatting_errors" and re.fullmatch(r"[a-z0-9_]+", text):
+        return f"Сработавшее правило: {_rule_short_name(text, '')}"
+    if rule_id == "body_font_size_9":
+        match = re.match(r"^([0-9]+(?:\.[0-9]+)?):\s*(.+)$", text)
+        if match:
+            return f"размер {match.group(1)} пт: {match.group(2)}"
+    if rule_id == "body_no_indent":
+        match = re.match(r"^\{[^}]+\}:\s*(.+)$", text)
+        if match:
+            return f"фрагмент с нестандартным отступом: {match.group(1)}"
+    return text
+
+
+def _ru_plural(value: int, one: str, few: str, many: str) -> str:
+    value_abs = abs(value)
+    if value_abs % 10 == 1 and value_abs % 100 != 11:
+        return one
+    if value_abs % 10 in {2, 3, 4} and value_abs % 100 not in {12, 13, 14}:
+        return few
+    return many
+
+
+def _formatting_impact_reason(
+    *,
+    rule_id: str,
+    status: str,
+    error_count: int,
+    systemic: bool,
+    blocking: bool,
+) -> str:
+    if rule_id == "systemic_formatting_errors":
+        return (
+            "Итоговое правило: балл снимается, если нарушения повторяются по документу "
+            "или суммарно набирается 3+ ошибок оформления."
+        )
+    if blocking:
+        return "Блокирующее нарушение: одного такого сигнала достаточно для незачета критерия."
+    if systemic:
+        count = max(error_count, 1)
+        return f"Повторяющееся нарушение: найдено {count} {_ru_plural(count, 'ошибка', 'ошибки', 'ошибок')} этого типа."
+    if status == "fail":
+        count = max(error_count, 1)
+        return f"Нарушение чеклиста: найдено {count} {_ru_plural(count, 'ошибка', 'ошибки', 'ошибок')}."
+    if status == "warn":
+        return "Предупреждение: само по себе не снимает балл, но помогает наставнику перепроверить место."
+    if status == "needs_review":
+        return "Нужна ручная сверка: автопроверка собрала данные, но не снижает балл самостоятельно."
+    return "Нарушений по правилу не найдено."
+
+
+def _expand_systemic_formatting_reasons(rules: list[dict[str, Any]], reasons: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id = {item["id"]: item for item in rules if item.get("id")}
+    expanded: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for reason in reasons:
+        if reason.get("id") == "systemic_formatting_errors":
+            raw_ids = [
+                value
+                for value in reason.get("raw_evidence", [])
+                if isinstance(value, str) and value in by_id and value != "systemic_formatting_errors"
+            ]
+            for raw_id in raw_ids:
+                item = dict(by_id[raw_id])
+                item["impact_reason"] = (
+                    item.get("impact_reason")
+                    or "Это правило входит в системные нарушения оформления, которые повлияли на балл."
+                )
+                if item["id"] not in seen:
+                    expanded.append(item)
+                    seen.add(item["id"])
+            if raw_ids:
+                continue
+
+        item_id = str(reason.get("id", ""))
+        if item_id not in seen:
+            expanded.append(reason)
+            seen.add(item_id)
+
+    return expanded
 
 
 def _formatting_toc_note(metadata_summary: dict[str, Any]) -> str:
@@ -323,7 +421,7 @@ def _formatting_view(
 
     is_awarded = expected_points == max_points
     actionable_issues = blocking or systemic or failed
-    score_reasons = actionable_issues
+    score_reasons = _expand_systemic_formatting_reasons(rules, actionable_issues)
     if not score_reasons:
         score_reasons = [{"title": "не выявлены", "evidence": [], "manual_hint": ""}]
 
@@ -343,26 +441,57 @@ def _formatting_view(
     font_summary_text = ", ".join(f"{font}: {count}" for font, count in sorted(font_counts.items()))
     font_rule = next((item for item in rules if item["id"] == "font_verdana"), None)
     font_examples = font_rule["evidence"] if font_rule and int(metadata_summary.get("non_verdana_count", 0) or 0) else []
+    impactful_rule_ids = {
+        item["id"]
+        for item in score_reasons
+        if item.get("id") and item.get("id") != "systemic_formatting_errors"
+    }
+    impactful_count = 0 if is_awarded else len(impactful_rule_ids or {item["id"] for item in actionable_issues if item.get("id")})
+    estimated_error_count = (
+        int(decision_hint.get("estimated_error_count", 0) or 0) if isinstance(decision_hint, dict) else 0
+    )
+    if is_awarded:
+        decision_summary = (
+            "Балл зачтен: автопроверка не нашла блокирующих или системных нарушений оформления. "
+            "Предупреждения ниже нужны только для быстрой ручной сверки."
+        )
+    else:
+        rule_word = _ru_plural(impactful_count, "правило", "правила", "правил")
+        error_word = _ru_plural(estimated_error_count, "ошибка", "ошибки", "ошибок")
+        rule_phrase = (
+            f"{impactful_count} сработавшее правило"
+            if rule_word == "правило"
+            else f"{impactful_count} сработавших {rule_word}"
+        )
+        decision_summary = (
+            f"Балл снят: найдено {rule_phrase} оформления "
+            f"и примерно {estimated_error_count} {error_word} по чеклисту. "
+            "Ниже показаны только причины, которые влияют на балл; полный технический список спрятан в сводке."
+        )
 
     return {
         "status": "ok" if is_awarded else "bad",
         "status_label": "Зачтено" if is_awarded else "Не зачтено",
         "passed_count": len(passed),
         "total_count": len(rules),
-        "failed_count": 0 if is_awarded else len(blocking) + len(systemic) + len(failed),
+        "failed_count": impactful_count,
         "warning_count": len([item for item in rules if item["status"] == "warn"]),
         "manual_count": 0 if is_awarded else len([item for item in rules if item["status"] == "needs_review"]),
         "score_reasons": score_reasons[:7],
         "warnings": warned[:6],
         "manual_checks": needs_review[:8],
+        "decision_summary": decision_summary,
+        "checklist_explanation": (
+            "Это автоматический чеклист оформления по инструкции: шрифты, интервалы, отступы, списки, таблицы, "
+            "рисунки, оглавление и колонтитулы. Не все 27 пунктов напрямую снимают балл: часть является "
+            "предупреждениями или данными для ручной сверки."
+        ),
         "metadata_summary": metadata_summary,
         "font_summary_text": font_summary_text,
         "font_examples": font_examples,
         "toc_note": _formatting_toc_note(metadata_summary),
         "has_actionable_issues": bool(actionable_issues),
-        "estimated_error_count": int(decision_hint.get("estimated_error_count", 0) or 0)
-        if isinstance(decision_hint, dict)
-        else 0,
+        "estimated_error_count": estimated_error_count,
         "fallback_comment": fallback_comment,
     }
 

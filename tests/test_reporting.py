@@ -366,6 +366,76 @@ def test_formatting_view_keeps_actionable_rule_visible_when_score_is_awarded():
     assert "Само число не снижает балл" in view["toc_note"]
 
 
+def test_formatting_view_expands_systemic_rule_ids_for_web():
+    payload = {
+        "status": "ok",
+        "profile_id": "analysts_2026_requirements",
+        "criteria": [
+            {
+                "criterion_id": "formatting_instruction",
+                "title": "2. Оформление соответствует инструкции и шаблону",
+                "weight": 1,
+                "score": 0,
+                "rationale": "formatting failed",
+                "evidence": [],
+            }
+        ],
+        "coverage_summary": {
+            "formatting_instruction": {
+                "checklist_facts": {
+                    "metadata_summary": {
+                        "font_checked_text_runs": 20,
+                        "non_verdana_count": 0,
+                        "toc_like_line_count": 8,
+                    },
+                    "decision_hint": {"estimated_error_count": 9},
+                    "checklist": [
+                        {
+                            "id": "body_font_size_9",
+                            "rule": "Основной текст должен быть набран размером 9 пунктов.",
+                            "status": "fail",
+                            "blocking": False,
+                            "error_count": 3,
+                            "systemic": True,
+                            "evidence": ["24.0: Функционально-технические требования"],
+                        },
+                        {
+                            "id": "list_font_and_markers",
+                            "rule": "Списки: Verdana 9, одинарный интервал; маркированные - дефисом.",
+                            "status": "fail",
+                            "blocking": False,
+                            "error_count": 3,
+                            "systemic": True,
+                            "evidence": ["Пункт списка: маркер списка не дефис"],
+                        },
+                        {
+                            "id": "systemic_formatting_errors",
+                            "rule": "Ошибки оформления не повторяются по всему документу.",
+                            "status": "fail",
+                            "blocking": True,
+                            "error_count": 9,
+                            "systemic": True,
+                            "evidence": ["body_font_size_9", "list_font_and_markers"],
+                        },
+                    ],
+                }
+            }
+        },
+    }
+
+    row = build_criteria_view(payload)[0]
+    view = row["formatting_view"]
+
+    assert view["failed_count"] == 2
+    assert [item["title"] for item in view["score_reasons"]] == [
+        "Основной текст 9 пт",
+        "Списки: шрифт и маркеры",
+    ]
+    assert view["score_reasons"][0]["evidence"] == ["размер 24.0 пт: Функционально-технические требования"]
+    assert "body_font_size_9" not in str([item["evidence"] for item in view["score_reasons"]])
+    assert "примерно 9 ошибок" in view["decision_summary"]
+
+
 def test_generic_criterion_view_groups_sections_for_web():
     payload = {
         "status": "ok",

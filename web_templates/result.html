@@ -121,6 +121,28 @@
       font-size: 0.86rem;
       color: #33483d;
     }
+    .decision-note {
+      border: 1px solid #f1c7c1;
+      background: #fff8f6;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: #612018;
+      font-size: 0.92rem;
+      line-height: 1.36;
+    }
+    .rule-note {
+      color: #495f53;
+      font-size: 0.9rem;
+      margin-top: 2px;
+    }
+    .evidence-label {
+      font-weight: 700;
+      color: #33483d;
+    }
+    .rule-details {
+      margin-top: 4px;
+      font-size: 0.88rem;
+    }
     .compact-list {
       margin: 0;
       padding-left: 17px;
@@ -284,26 +306,36 @@
               <div class="criterion-box">
                 <div class="structure-head">
                   <span class="badge {% if item.formatting_view.status == 'ok' %}badge-ok{% else %}badge-bad{% endif %}">{{ item.formatting_view.status_label }}</span>
-                  <span>Правила чеклиста: <strong>{{ item.formatting_view.passed_count }} / {{ item.formatting_view.total_count }}</strong></span>
+                  <span>Автопроверка оформления: <strong>{{ item.formatting_view.passed_count }} / {{ item.formatting_view.total_count }}</strong> правил без замечаний</span>
                   <span class="note">влияет на балл: {{ item.formatting_view.failed_count }}, предупреждений: {{ item.formatting_view.warning_count }}</span>
                 </div>
+                <div class="decision-note">{{ item.formatting_view.decision_summary }}</div>
 
                 {% if item.formatting_view.status != 'ok' or item.formatting_view.has_actionable_issues %}
                 <div class="criterion-section critical">
-                  <div class="structure-label">{% if item.formatting_view.status == 'ok' %}Автопроверка нашла нарушения{% else %}Влияет на балл{% endif %}</div>
+                  <div class="structure-label">{% if item.formatting_view.status == 'ok' %}Автопроверка нашла нарушения{% else %}Почему снят балл{% endif %}</div>
                   <ul class="compact-list">
                     {% for rule in item.formatting_view.score_reasons %}
                     <li>
                       <strong>{{ rule.title }}</strong>
+                      {% if rule.impact_reason %}
+                      <div class="rule-note">{{ rule.impact_reason }}</div>
+                      {% endif %}
                       {% if rule.evidence %}
                       <ul class="compact-list note">
                         {% for evidence in rule.evidence %}
-                        <li>Пример: {{ evidence }}</li>
+                        <li><span class="evidence-label">Где видно:</span> {{ evidence }}</li>
                         {% endfor %}
                       </ul>
                       {% endif %}
                       {% if rule.manual_hint %}
-                      <div class="note">{{ rule.manual_hint }}</div>
+                      <div class="rule-note"><span class="evidence-label">Как перепроверить:</span> {{ rule.manual_hint }}</div>
+                      {% endif %}
+                      {% if rule.rule %}
+                      <details class="rule-details">
+                        <summary>Точное правило чеклиста</summary>
+                        <div class="note">{{ rule.rule }}</div>
+                      </details>
                       {% endif %}
                     </li>
                     {% endfor %}
@@ -312,16 +344,19 @@
                 {% endif %}
 
                 <div class="criterion-section neutral">
-                  <div class="structure-label">{% if item.formatting_view.status == 'ok' %}Не влияет на балл, но стоит видеть{% else %}Предупреждения{% endif %}</div>
+                  <div class="structure-label">{% if item.formatting_view.status == 'ok' %}Не влияет на балл, но стоит видеть{% else %}Дополнительные сигналы{% endif %}</div>
                   <ul class="compact-list">
                     {% for rule in item.formatting_view.warnings %}
                     <li>
                       <strong>{{ rule.title }}</strong>
+                      {% if rule.impact_reason %}
+                      <div class="rule-note">{{ rule.impact_reason }}</div>
+                      {% endif %}
                       {% if rule.evidence %}
-                      <div class="note">Пример: {{ rule.evidence[0] }}</div>
+                      <div class="note"><span class="evidence-label">Где видно:</span> {{ rule.evidence[0] }}</div>
                       {% endif %}
                       {% if rule.manual_hint %}
-                      <div class="note">{{ rule.manual_hint }}</div>
+                      <div class="note"><span class="evidence-label">Как перепроверить:</span> {{ rule.manual_hint }}</div>
                       {% endif %}
                     </li>
                     {% endfor %}
@@ -330,13 +365,14 @@
 
                 {% if item.formatting_view.status != 'ok' %}
                 <div class="criterion-section manual">
-                  <div class="structure-label">Быстрая ручная проверка</div>
+                  <div class="structure-label">Ручная сверка, не снявшая балл автоматически</div>
                   <ul class="compact-list">
                     {% for rule in item.formatting_view.manual_checks %}
                     <li>
                       <strong>{{ rule.title }}</strong>
-                      {% if rule.manual_hint %}<div class="note">{{ rule.manual_hint }}</div>{% endif %}
-                      {% if rule.evidence %}<div class="note">Данные: {{ rule.evidence[0] }}</div>{% endif %}
+                      {% if rule.impact_reason %}<div class="rule-note">{{ rule.impact_reason }}</div>{% endif %}
+                      {% if rule.manual_hint %}<div class="note"><span class="evidence-label">Как перепроверить:</span> {{ rule.manual_hint }}</div>{% endif %}
+                      {% if rule.evidence %}<div class="note"><span class="evidence-label">Данные:</span> {{ rule.evidence[0] }}</div>{% endif %}
                     </li>
                     {% endfor %}
                   </ul>
@@ -344,7 +380,8 @@
                 {% endif %}
 
                 <details>
-                  <summary>Показать техническую сводку</summary>
+                  <summary>Что такое чеклист и техническая сводка</summary>
+                  <p class="note">{{ item.formatting_view.checklist_explanation }}</p>
                   <ul class="compact-list">
                     <li>Таблиц: {{ item.formatting_view.metadata_summary.table_count | default(0, true) }}</li>
                     <li>Проверенных фрагментов шрифта: {{ item.formatting_view.metadata_summary.font_checked_text_runs | default(0, true) }}</li>
